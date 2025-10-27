@@ -63,8 +63,9 @@ frontend/dist/
 frontend/build/
 
 # Logs
-logs
+logs/
 *.log
+*.log.*
 
 # Coverage
 htmlcov/

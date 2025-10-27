@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { WeekEntry, WorkLocation, SummaryRow } from './types'
-import { saveWeek, getWeekSummary, checkExistingEntries } from './api'
+import { saveWeek, getWeekSummary, checkExistingEntries, getUserEntriesForWeek } from './api'
 
-type ViewMode = 'fill' | 'dashboard'
+type ViewMode = 'fill' | 'dashboard' | 'edit'
 
 function getMondayOfWeek(date: Date): Date {
   const day = date.getDay()
@@ -89,13 +89,24 @@ function getLocationBadgeClass(location: string): string {
 function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('fill')
   const [weekStart, setWeekStart] = useState<Date>(getMondayOfWeek(new Date()))
-  const [userName, setUserName] = useState('')
+  const [userName, setUserName] = useState(() => {
+    // Load from localStorage on mount
+    return localStorage.getItem('workTrackerUserName') || ''
+  })
   const [weekEntries, setWeekEntries] = useState<WeekEntry[]>([])
   const [summaryEntries, setSummaryEntries] = useState<SummaryRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
   const [existingEntriesCount, setExistingEntriesCount] = useState(0)
+  const [isEditMode, setIsEditMode] = useState(false)
+
+  // Save user name to localStorage whenever it changes
+  useEffect(() => {
+    if (userName.trim()) {
+      localStorage.setItem('workTrackerUserName', userName.trim())
+    }
+  }, [userName])
 
   // Initialize week entries when week start changes
   useEffect(() => {
@@ -116,6 +127,11 @@ function App() {
         try {
           const result = await checkExistingEntries(userName.trim(), formatDate(weekStart))
           setExistingEntriesCount(result.exists ? result.count : 0)
+          
+          // If in edit mode, load existing entries
+          if (isEditMode && result.exists) {
+            await loadExistingEntries(userName.trim(), formatDate(weekStart))
+          }
         } catch (err) {
           setExistingEntriesCount(0)
         }
@@ -124,7 +140,37 @@ function App() {
       }
     }
     checkForExisting()
-  }, [userName, weekStart])
+  }, [userName, weekStart, isEditMode])
+
+  const loadExistingEntries = async (user: string, week: string) => {
+    try {
+      setLoading(true)
+      const existingEntries = await getUserEntriesForWeek(user, week)
+      
+      // Create a map of existing entries by date
+      const entriesMap = new Map(existingEntries.map(entry => [entry.date, entry]))
+      
+      // Update week entries with existing data
+      const updatedEntries = weekEntries.map(entry => {
+        const existing = entriesMap.get(entry.date)
+        if (existing) {
+          return {
+            ...entry,
+            location: existing.location as WorkLocation,
+            client: existing.client || '',
+            notes: existing.notes || ''
+          }
+        }
+        return entry
+      })
+      
+      setWeekEntries(updatedEntries)
+    } catch (err) {
+      setError('Failed to load existing entries')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const loadWeekSummary = async () => {
     try {
@@ -170,6 +216,40 @@ function App() {
     setWeekEntries(newEntries)
   }
 
+  const applyPreset = (presetType: 'all-office' | 'all-wfh' | 'hybrid') => {
+    const newEntries = [...weekEntries]
+    
+    if (presetType === 'all-office') {
+      newEntries.forEach(entry => {
+        entry.location = 'Neal Street'
+        entry.client = ''
+        entry.notes = ''
+      })
+    } else if (presetType === 'all-wfh') {
+      newEntries.forEach(entry => {
+        entry.location = 'WFH'
+        entry.client = ''
+        entry.notes = ''
+      })
+    } else if (presetType === 'hybrid') {
+      // 3 days office, 2 days WFH
+      newEntries.forEach((entry, index) => {
+        if (index < 3) {
+          entry.location = 'Neal Street'
+          entry.client = ''
+        } else {
+          entry.location = 'WFH'
+          entry.client = ''
+        }
+        entry.notes = ''
+      })
+    }
+    
+    setWeekEntries(newEntries)
+    setToast('Preset applied!')
+    setTimeout(() => setToast(''), 2000)
+  }
+
   const validateEntries = (): string | null => {
     if (!userName.trim()) {
       return 'Please enter your name'
@@ -206,8 +286,9 @@ function App() {
       }
 
       await saveWeek(request)
-      setToast('Week saved successfully!')
+      setToast(isEditMode ? 'Week updated successfully!' : 'Week saved successfully!')
       setTimeout(() => setToast(''), 3000)
+      setIsEditMode(false)
       setViewMode('dashboard')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save week')
@@ -231,9 +312,24 @@ function App() {
       <div className="toggle-buttons">
         <button
           className={`toggle-btn ${viewMode === 'fill' ? 'active' : ''}`}
-          onClick={() => setViewMode('fill')}
+          onClick={() => {
+            setViewMode('fill')
+            setIsEditMode(false)
+          }}
         >
           Fill my week
+        </button>
+        <button
+          className={`toggle-btn ${viewMode === 'edit' ? 'active' : ''}`}
+          onClick={() => {
+            setViewMode('edit')
+            setIsEditMode(true)
+            if (userName.trim()) {
+              loadExistingEntries(userName.trim(), formatDate(weekStart))
+            }
+          }}
+        >
+          Edit my week
         </button>
         <button
           className={`toggle-btn ${viewMode === 'dashboard' ? 'active' : ''}`}
@@ -257,7 +353,7 @@ function App() {
 
       {toast && <div className="toast">{toast}</div>}
 
-      {viewMode === 'fill' && (
+      {(viewMode === 'fill' || viewMode === 'edit') && (
         <div className="form-section">
           <div className="form-group">
             <label htmlFor="user-name">Your name:</label>
@@ -275,6 +371,31 @@ function App() {
                 Submitting will replace them.
               </div>
             )}
+          </div>
+
+          <div className="preset-buttons">
+            <span className="preset-label">Quick fill:</span>
+            <button
+              className="preset-btn"
+              onClick={() => applyPreset('all-office')}
+              type="button"
+            >
+              🏢 All Office
+            </button>
+            <button
+              className="preset-btn"
+              onClick={() => applyPreset('all-wfh')}
+              type="button"
+            >
+              🏠 All WFH
+            </button>
+            <button
+              className="preset-btn"
+              onClick={() => applyPreset('hybrid')}
+              type="button"
+            >
+              🔄 Hybrid (3+2)
+            </button>
           </div>
 
           <table className="week-table">
@@ -338,7 +459,7 @@ function App() {
             onClick={handleSaveWeek}
             disabled={loading}
           >
-            {loading ? 'Saving...' : 'Save my week'}
+            {loading ? 'Saving...' : isEditMode ? 'Update my week' : 'Save my week'}
           </button>
         </div>
       )}

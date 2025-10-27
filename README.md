@@ -33,7 +33,7 @@ Visit http://localhost:5173
 
 ```bash
 # Start both services
-./start.sh
+pm2 start ecosystem.config.js
 
 # Check status
 pm2 status
@@ -47,7 +47,7 @@ pm2 stop all
 
 ## 🌐 Free Hosting
 
-See [HOSTING_GUIDE.md](HOSTING_GUIDE.md) for detailed instructions on deploying to:
+See [docs/HOSTING_GUIDE.md](docs/deployment/HOSTING_GUIDE.md) for detailed instructions on deploying to:
 - **Frontend**: Vercel (free forever)
 - **Backend**: Render (free tier)
 

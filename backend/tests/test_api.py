@@ -36,11 +36,11 @@ def test_bulk_upsert_success(client):
     request_data = {
         "user_name": "test_user",
         "entries": [
-            {"date": "2024-01-15", "location": "Office", "notes": "Test day"},
+            {"date": "2024-01-15", "location": "Neal Street", "notes": "Test day"},
             {"date": "2024-01-16", "location": "WFH", "notes": "Work from home"},
             {
                 "date": "2024-01-17",
-                "location": "Client",
+                "location": "Client Office",
                 "client": "Test Client",
                 "notes": "Client meeting",
             },
@@ -59,7 +59,7 @@ def test_bulk_upsert_client_validation(client):
     request_data = {
         "user_name": "test_user",
         "entries": [
-            {"date": "2024-01-15", "location": "Client", "notes": "Missing client name"}
+            {"date": "2024-01-15", "location": "Client Office", "notes": "Missing client name"}
         ],
     }
 
@@ -90,7 +90,7 @@ def test_week_summary_success(client):
     request_data = {
         "user_name": "test_user",
         "entries": [
-            {"date": "2024-01-15", "location": "Office", "notes": "Monday"},
+            {"date": "2024-01-15", "location": "Neal Street", "notes": "Monday"},
             {"date": "2024-01-16", "location": "WFH", "notes": "Tuesday"},
         ],
     }
@@ -117,7 +117,7 @@ def test_get_entries_with_filters(client):
     request_data = {
         "user_name": "test_user",
         "entries": [
-            {"date": "2024-01-15", "location": "Office", "notes": "Monday"},
+            {"date": "2024-01-15", "location": "Neal Street", "notes": "Monday"},
             {"date": "2024-01-20", "location": "WFH", "notes": "Saturday"},
         ],
     }
@@ -136,7 +136,7 @@ def test_delete_entry_success(client):
     # First, add test data
     request_data = {
         "user_name": "test_user",
-        "entries": [{"date": "2024-01-15", "location": "Office", "notes": "Monday"}],
+        "entries": [{"date": "2024-01-15", "location": "Neal Street", "notes": "Monday"}],
     }
     response = client.post("/entries/bulk_upsert", json=request_data)
     assert response.status_code == 200

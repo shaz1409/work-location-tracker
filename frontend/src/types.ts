@@ -36,3 +36,10 @@ export interface WeekEntry {
   client: string
   notes: string
 }
+
+export interface ExistingEntry {
+  date: string
+  location: string
+  client?: string
+  notes?: string
+}

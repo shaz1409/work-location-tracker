@@ -55,3 +55,11 @@ export async function checkExistingEntries(
     `/entries/check?user_name=${encodeURIComponent(userName)}&week_start=${weekStart}`
   )
 }
+
+export async function getUserEntriesForWeek(
+  userName: string,
+  weekStart: string
+): Promise<any[]> {
+  const result = await checkExistingEntries(userName, weekStart)
+  return result.entries || []
+}
