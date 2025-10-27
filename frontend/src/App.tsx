@@ -335,10 +335,7 @@ function App() {
     <div className="container">
       <div className="header">
         <div className="header-content">
-          <svg className="logo" viewBox="0 0 120 80" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect x="10" y="10" width="20" height="55" fill="white"/>
-            <path d="M30 10 L110 10 L110 80 L30 50 Z" fill="white"/>
-          </svg>
+          <img src="/logo.jpg" alt="Logo" className="logo" />
           <div className="header-text">
             <h1>Work Location Tracker</h1>
             <p>Track where your team will work each day of the week</p>
