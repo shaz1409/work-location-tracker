@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { WeekEntry, WorkLocation, SummaryRow } from './types'
 import { saveWeek, getWeekSummary, checkExistingEntries, getUserEntriesForWeek, getUsersForWeek } from './api'
+import teamConfig from '@/team-members.json'
 
 type ViewMode = 'fill' | 'dashboard' | 'edit'
 
@@ -101,6 +102,11 @@ function App() {
   const [existingEntriesCount, setExistingEntriesCount] = useState(0)
   const [isEditMode, setIsEditMode] = useState(false)
   const [userList, setUserList] = useState<string[]>([])
+  const [showUserDropdown, setShowUserDropdown] = useState(false)
+  const [userSearchTerm, setUserSearchTerm] = useState('')
+  
+  // Preset list of team member names (loaded from config file)
+  const allUsers = teamConfig.teamMembers
 
   // Save user name to localStorage whenever it changes
   useEffect(() => {
@@ -412,16 +418,87 @@ function App() {
 
       {viewMode === 'fill' && (
         <div className="form-section">
-          <div className="form-group">
+          <div className="form-group" style={{ position: 'relative' }}>
             <label htmlFor="user-name">Your name:</label>
-            <input
-              id="user-name"
-              type="text"
-              value={userName}
-              onChange={(e) => setUserName(e.target.value)}
-              placeholder="Enter your name"
-              required
-            />
+            <div style={{ position: 'relative' }}>
+              <input
+                id="user-name"
+                type="text"
+                value={userName}
+                onChange={(e) => {
+                  setUserName(e.target.value)
+                  setUserSearchTerm(e.target.value)
+                  setShowUserDropdown(true)
+                }}
+                onFocus={() => setShowUserDropdown(true)}
+                onBlur={() => setTimeout(() => setShowUserDropdown(false), 200)}
+                placeholder="Search or enter your name"
+                required
+              />
+              {showUserDropdown && (
+                <div 
+                  className="user-dropdown"
+                  style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    right: 0,
+                    backgroundColor: '#1a1a1a',
+                    border: '1px solid #333',
+                    borderRadius: '8px',
+                    marginTop: '4px',
+                    maxHeight: '200px',
+                    overflowY: 'auto',
+                    zIndex: 1000,
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+                  }}
+                >
+                  {allUsers
+                    .filter(user => 
+                      user.toLowerCase().includes(userSearchTerm.toLowerCase())
+                    )
+                    .slice(0, 10)
+                    .map((user, index) => (
+                      <div
+                        key={index}
+                        onClick={() => {
+                          setUserName(user)
+                          setUserSearchTerm('')
+                          setShowUserDropdown(false)
+                        }}
+                        onMouseDown={(e) => e.preventDefault()}
+                        style={{
+                          padding: '12px 16px',
+                          cursor: 'pointer',
+                          borderBottom: index < 9 ? '1px solid #333' : 'none',
+                          backgroundColor: user === userName ? '#2a2a2a' : 'transparent',
+                          transition: 'background-color 0.2s',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#2a2a2a'
+                        }}
+                        onMouseLeave={(e) => {
+                          if (user !== userName) {
+                            e.currentTarget.style.backgroundColor = 'transparent'
+                          }
+                        }}
+                      >
+                        {user}
+                      </div>
+                    ))}
+                  {allUsers.filter(user => 
+                    user.toLowerCase().includes(userSearchTerm.toLowerCase())
+                  ).length === 0 && (
+                    <div style={{ padding: '12px 16px', color: '#888', fontStyle: 'italic' }}>
+                      No matches found
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
             {existingEntriesCount > 0 && (
               <div className="update-warning">
                 ℹ️ You already have {existingEntriesCount} entry/entries for this week. 

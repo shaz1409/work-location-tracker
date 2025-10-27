@@ -217,6 +217,29 @@ def delete_entry(entry_id: int, session: Session = Depends(get_session)):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@app.get("/summary/all-users")
+def get_all_users(
+    session: Session = Depends(get_session),
+):
+    """Get list of all unique users who have ever submitted entries."""
+    logger.info("All users request")
+
+    try:
+        # Query all entries to get unique user names
+        stmt = select(Entry)
+        entries = session.exec(stmt).all()
+
+        # Get unique user names (preserve case but sort alphabetically)
+        users = sorted(list(set([entry.user_name for entry in entries])))
+
+        logger.info(f"Found {len(users)} total users")
+        return {"users": users}
+
+    except Exception as e:
+        logger.error(f"Error getting all users: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/summary/users")
 def get_users_for_week(
     week_start: str = Query(..., description="Week start date in YYYY-MM-DD format"),

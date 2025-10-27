@@ -69,3 +69,7 @@ export async function getUsersForWeek(
 ): Promise<{ users: string[] }> {
   return apiCall<{ users: string[] }>(`/summary/users?week_start=${weekStart}`)
 }
+
+export async function getAllUsers(): Promise<{ users: string[] }> {
+  return apiCall<{ users: string[] }>('/summary/all-users')
+}
