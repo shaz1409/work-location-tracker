@@ -26,7 +26,7 @@ function generateWeekEntries(weekStart: Date): WeekEntry[] {
     entries.push({
       date: formatDate(date),
       dayName: getDayName(date),
-      location: 'Office' as Location,
+      location: 'Office' as WorkLocation,
       client: '',
       notes: '',
     })
@@ -54,20 +54,21 @@ function groupEntriesByDateAndLocation(entries: SummaryRow[]): {
   )
 }
 
-function groupEntriesByDate(entries: SummaryRow[]): {
-  [date: string]: SummaryRow[]
-} {
-  return entries.reduce(
-    (groups, entry) => {
-      if (!groups[entry.date]) {
-        groups[entry.date] = []
-      }
-      groups[entry.date].push(entry)
-      return groups
-    },
-    {} as { [date: string]: SummaryRow[] }
-  )
-}
+// Unused but kept for future use
+// function groupEntriesByDate(entries: SummaryRow[]): {
+//   [date: string]: SummaryRow[]
+// } {
+//   return entries.reduce(
+//     (groups, entry) => {
+//       if (!groups[entry.date]) {
+//         groups[entry.date] = []
+//       }
+//       groups[entry.date].push(entry)
+//       return groups
+//     },
+//     {} as { [date: string]: SummaryRow[] }
+//   )
+// }
 
 function getLocationBadgeClass(location: string): string {
   switch (location.toLowerCase()) {
