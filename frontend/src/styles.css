@@ -32,14 +32,30 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
+.header-content {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.logo {
+  width: 80px;
+  height: 60px;
+  flex-shrink: 0;
+}
+
+.header-text {
+  flex: 1;
+}
+
 .header h1 {
   color: white;
   margin-bottom: 10px;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
 .header p {
-  color: rgba(255, 255, 255, 0.8);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .toggle-buttons {
@@ -428,6 +444,17 @@ body {
     padding: 10px;
   }
 
+  .header-content {
+    flex-direction: column;
+    gap: 15px;
+    text-align: center;
+  }
+
+  .logo {
+    width: 60px;
+    height: 45px;
+  }
+
   .week-table,
   .summary-table {
     font-size: 14px;
@@ -503,4 +530,42 @@ body {
 
 .preset-btn:active {
   transform: translateY(0);
+}
+
+.user-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 15px;
+  margin-top: 20px;
+}
+
+.user-card {
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 10px;
+  color: white;
+  font-size: 18px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-align: center;
+}
+
+.user-card:hover {
+  background: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.5);
+  transform: translateY(-3px);
+  box-shadow: 0 8px 24px rgba(102, 126, 234, 0.4);
+}
+
+.user-card:active {
+  transform: translateY(-1px);
+}
+
+.form-section h2 {
+  color: white;
+  margin-bottom: 20px;
+  text-align: center;
+  font-size: 22px;
 }

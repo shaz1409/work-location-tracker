@@ -217,6 +217,47 @@ def delete_entry(entry_id: int, session: Session = Depends(get_session)):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@app.get("/summary/users")
+def get_users_for_week(
+    week_start: str = Query(..., description="Week start date in YYYY-MM-DD format"),
+    session: Session = Depends(get_session),
+):
+    """Get list of unique users who have entries for a given week."""
+    logger.info(f"Users request for week starting: {week_start}")
+
+    try:
+        # Calculate week end date (Friday)
+        start_date = datetime.strptime(week_start, "%Y-%m-%d").date()
+        end_date = start_date + timedelta(days=4)
+
+        # Query entries for the week
+        stmt = (
+            select(Entry)
+            .where(
+                Entry.date >= week_start,
+                Entry.date <= end_date.strftime("%Y-%m-%d"),
+            )
+        )
+
+        entries = session.exec(stmt).all()
+
+        # Get unique user names (case-insensitive)
+        users = list(set([entry.user_name for entry in entries]))
+        users.sort()
+
+        logger.info(f"Found {len(users)} users for week {week_start}")
+        return {"users": users}
+
+    except ValueError as e:
+        logger.error(f"Invalid date format: {str(e)}")
+        raise HTTPException(
+            status_code=400, detail="Invalid date format. Use YYYY-MM-DD"
+        )
+    except Exception as e:
+        logger.error(f"Error getting users: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/entries/check")
 def check_existing_entries(
     user_name: str = Query(..., description="User name to check"),

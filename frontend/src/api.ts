@@ -63,3 +63,9 @@ export async function getUserEntriesForWeek(
   const result = await checkExistingEntries(userName, weekStart)
   return result.entries || []
 }
+
+export async function getUsersForWeek(
+  weekStart: string
+): Promise<{ users: string[] }> {
+  return apiCall<{ users: string[] }>(`/summary/users?week_start=${weekStart}`)
+}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { WeekEntry, WorkLocation, SummaryRow } from './types'
-import { saveWeek, getWeekSummary, checkExistingEntries, getUserEntriesForWeek } from './api'
+import { saveWeek, getWeekSummary, checkExistingEntries, getUserEntriesForWeek, getUsersForWeek } from './api'
 
 type ViewMode = 'fill' | 'dashboard' | 'edit'
 
@@ -100,6 +100,7 @@ function App() {
   const [toast, setToast] = useState('')
   const [existingEntriesCount, setExistingEntriesCount] = useState(0)
   const [isEditMode, setIsEditMode] = useState(false)
+  const [userList, setUserList] = useState<string[]>([])
 
   // Save user name to localStorage whenever it changes
   useEffect(() => {
@@ -127,11 +128,6 @@ function App() {
         try {
           const result = await checkExistingEntries(userName.trim(), formatDate(weekStart))
           setExistingEntriesCount(result.exists ? result.count : 0)
-          
-          // If in edit mode, load existing entries
-          if (isEditMode && result.exists) {
-            await loadExistingEntries(userName.trim(), formatDate(weekStart))
-          }
         } catch (err) {
           setExistingEntriesCount(0)
         }
@@ -140,7 +136,27 @@ function App() {
       }
     }
     checkForExisting()
-  }, [userName, weekStart, isEditMode])
+  }, [userName, weekStart])
+
+  // Load user list when in edit mode
+  useEffect(() => {
+    if (viewMode === 'edit') {
+      loadUserList()
+    }
+  }, [viewMode, weekStart])
+
+  const loadUserList = async () => {
+    try {
+      setLoading(true)
+      const result = await getUsersForWeek(formatDate(weekStart))
+      setUserList(result.users)
+    } catch (err) {
+      setError('Failed to load user list')
+      setUserList([])
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const loadExistingEntries = async (user: string, week: string) => {
     try {
@@ -170,6 +186,13 @@ function App() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleUserSelect = async (selectedUser: string) => {
+    setUserName(selectedUser)
+    setIsEditMode(true)
+    setViewMode('fill')
+    await loadExistingEntries(selectedUser, formatDate(weekStart))
   }
 
   const loadWeekSummary = async () => {
@@ -305,8 +328,16 @@ function App() {
   return (
     <div className="container">
       <div className="header">
-        <h1>Work Location Tracker</h1>
-        <p>Track where your team will work each day of the week</p>
+        <div className="header-content">
+          <svg className="logo" viewBox="0 0 120 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="10" y="10" width="20" height="55" fill="white"/>
+            <path d="M30 10 L110 10 L110 80 L30 50 Z" fill="white"/>
+          </svg>
+          <div className="header-text">
+            <h1>Work Location Tracker</h1>
+            <p>Track where your team will work each day of the week</p>
+          </div>
+        </div>
       </div>
 
       <div className="toggle-buttons">
@@ -323,10 +354,7 @@ function App() {
           className={`toggle-btn ${viewMode === 'edit' ? 'active' : ''}`}
           onClick={() => {
             setViewMode('edit')
-            setIsEditMode(true)
-            if (userName.trim()) {
-              loadExistingEntries(userName.trim(), formatDate(weekStart))
-            }
+            setIsEditMode(false)
           }}
         >
           Edit my week
@@ -353,7 +381,36 @@ function App() {
 
       {toast && <div className="toast">{toast}</div>}
 
-      {(viewMode === 'fill' || viewMode === 'edit') && (
+      {viewMode === 'edit' && (
+        <div className="form-section">
+          <h2>Select your name to edit:</h2>
+          {loading ? (
+            <div className="empty-state">
+              <h3>Loading...</h3>
+            </div>
+          ) : userList.length === 0 ? (
+            <div className="empty-state">
+              <h3>No entries found for this week</h3>
+              <p>No one has submitted their work locations yet.</p>
+            </div>
+          ) : (
+            <div className="user-list">
+              {userList.map((user, index) => (
+                <button
+                  key={index}
+                  className="user-card"
+                  onClick={() => handleUserSelect(user)}
+                  type="button"
+                >
+                  {user}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {viewMode === 'fill' && (
         <div className="form-section">
           <div className="form-group">
             <label htmlFor="user-name">Your name:</label>
