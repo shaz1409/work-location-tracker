@@ -514,21 +514,21 @@ function App() {
               onClick={() => applyPreset('all-office')}
               type="button"
             >
-              🏢 All Office
+              <span style={{ fontSize: '18px', marginRight: '6px' }}>🏢</span> All Office
             </button>
             <button
               className="preset-btn"
               onClick={() => applyPreset('all-wfh')}
               type="button"
             >
-              🏠 All WFH
+              <span style={{ fontSize: '18px', marginRight: '6px' }}>🏠</span> All WFH
             </button>
             <button
               className="preset-btn"
               onClick={() => applyPreset('hybrid')}
               type="button"
             >
-              🔄 Hybrid (3+2)
+              <span style={{ fontSize: '18px', marginRight: '6px' }}>🔄</span> Hybrid (3+2)
             </button>
           </div>
 
