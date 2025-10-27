@@ -1,5 +1,70 @@
 # Work Location Tracker
 
+A beautiful web application to track where your team members are working (Office, WFH, Client, PTO, Off) throughout the week.
+
+## 🌟 Features
+
+- 📊 **Beautiful black-themed UI** - modern and professional
+- 📅 **Week view dashboard** - see everyone's locations by day
+- 👥 **Grouped by location** - Office, WFH, Client, PTO, Off
+- 🔄 **Real-time updates** - instant save and refresh
+- 📱 **Mobile responsive** - works on all devices
+- 🆓 **100% free to use** - no costs, no accounts needed
+
+## 🚀 Quick Start
+
+### Local Development
+
+```bash
+# Start backend
+cd backend
+pip install -r requirements.txt
+uvicorn app:app --reload --port 8002
+
+# Start frontend (in new terminal)
+cd frontend
+npm install
+npm run dev
+```
+
+Visit http://localhost:5173
+
+### Using PM2 (Continuous Running)
+
+```bash
+# Start both services
+./start.sh
+
+# Check status
+pm2 status
+
+# View logs
+pm2 logs
+
+# Stop services
+pm2 stop all
+```
+
+## 🌐 Free Hosting
+
+See [HOSTING_GUIDE.md](HOSTING_GUIDE.md) for detailed instructions on deploying to:
+- **Frontend**: Vercel (free forever)
+- **Backend**: Render (free tier)
+
+## 📖 Usage
+
+1. **Fill your week**: Enter your name and select work locations for each day
+2. **Save**: Click "Save my week" to store your entries
+3. **View dashboard**: Switch to "Who's where" to see everyone's locations grouped by day and location type
+4. **Change weeks**: Use the week selector to navigate between different weeks
+
+## 🛠️ Tech Stack
+
+- **Backend**: Python 3.11, FastAPI, SQLModel, SQLite
+- **Frontend**: React, TypeScript, Vite
+- **Styling**: CSS with glassmorphism effects
+- **Deployment**: Vercel + Render (free hosting)
+
 A web application for tracking where team members will work each day of the week.
 
 ## Quick Start (Local without Docker)
