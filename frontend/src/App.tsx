@@ -20,7 +20,8 @@ function getDayName(date: Date): string {
 
 function generateWeekEntries(weekStart: Date): WeekEntry[] {
   const entries: WeekEntry[] = []
-  for (let i = 0; i < 7; i++) {
+  // Only generate Monday-Friday (5 days)
+  for (let i = 0; i < 5; i++) {
     const date = new Date(weekStart)
     date.setDate(weekStart.getDate() + i)
     entries.push({
@@ -354,27 +355,19 @@ function App() {
 
                     return (
                       <div key={location} className="location-group">
-                        <h4 className="location-group-title">
+                        <div className="location-group-title">
                           <span className={`location-badge ${getLocationBadgeClass(location)}`}>
                             {location}
                           </span>
-                          <span className="location-count">
-                            ({entriesForLocation.length} {entriesForLocation.length === 1 ? 'person' : 'people'})
+                          <span className="location-people">
+                            {entriesForLocation.map((entry, index) => (
+                              <span key={`${entry.user_name}-${index}`} className="person-name-inline">
+                                {entry.user_name}
+                                {entry.client && ` (${entry.client})`}
+                                {index < entriesForLocation.length - 1 && ', '}
+                              </span>
+                            ))}
                           </span>
-                        </h4>
-                        
-                        <div className="people-list">
-                          {entriesForLocation.map((entry, index) => (
-                            <div key={`${entry.user_name}-${index}`} className="person-card">
-                              <div className="person-name">{entry.user_name}</div>
-                              {entry.client && (
-                                <div className="person-client">Client: {entry.client}</div>
-                              )}
-                              {entry.notes && (
-                                <div className="person-notes">Notes: {entry.notes}</div>
-                              )}
-                            </div>
-                          ))}
                         </div>
                       </div>
                     )

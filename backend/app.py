@@ -101,9 +101,9 @@ def get_week_summary(
     logger.info(f"Week summary request for week starting: {week_start}")
 
     try:
-        # Calculate week end date (6 days after start)
+        # Calculate week end date (4 days after start = Friday)
         start_date = datetime.strptime(week_start, "%Y-%m-%d").date()
-        end_date = start_date + timedelta(days=6)
+        end_date = start_date + timedelta(days=4)  # Monday to Friday
 
         # Query entries for the week
         stmt = (
