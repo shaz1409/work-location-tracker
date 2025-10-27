@@ -265,6 +265,55 @@ def check_existing_entries(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/admin/migrate-locations")
+def migrate_locations(session: Session = Depends(get_session)):
+    """Migrate old location names to new ones."""
+    logger.info("Starting location migration")
+    
+    # Mapping old names to new names
+    migration_map = {
+        "Office": "Neal Street",
+        "Client": "Client Office", 
+        "Off": "Holiday"
+        # PTO entries will need to be handled separately or deleted
+    }
+    
+    try:
+        updated_count = 0
+        deleted_count = 0
+        
+        for old_name, new_name in migration_map.items():
+            stmt = select(Entry).where(Entry.location == old_name)
+            entries = session.exec(stmt).all()
+            
+            for entry in entries:
+                entry.location = new_name
+                updated_count += 1
+            
+            session.commit()
+        
+        # Delete PTO entries since we removed that option
+        stmt = select(Entry).where(Entry.location == "PTO")
+        pto_entries = session.exec(stmt).all()
+        for entry in pto_entries:
+            session.delete(entry)
+            deleted_count += 1
+        
+        session.commit()
+        
+        logger.info(f"Migration complete: {updated_count} updated, {deleted_count} PTO entries deleted")
+        return {
+            "ok": True, 
+            "updated": updated_count,
+            "deleted_pto": deleted_count,
+            "message": "Migration complete"
+        }
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Migration error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/")
 def root():
     """Root endpoint."""
