@@ -1,0 +1,14 @@
+version: "1"
+
+services:
+  api:
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHONPATH
+        value: /opt/render/project/src
+    disk:
+      name: db-storage
+      mountPath: /app
+      sizeGB: 1
