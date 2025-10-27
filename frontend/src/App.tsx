@@ -24,13 +24,13 @@ function generateWeekEntries(weekStart: Date): WeekEntry[] {
   for (let i = 0; i < 5; i++) {
     const date = new Date(weekStart)
     date.setDate(weekStart.getDate() + i)
-    entries.push({
-      date: formatDate(date),
-      dayName: getDayName(date),
-      location: 'Office' as WorkLocation,
-      client: '',
-      notes: '',
-    })
+      entries.push({
+        date: formatDate(date),
+        dayName: getDayName(date),
+        location: 'Neal Street' as WorkLocation,
+        client: '',
+        notes: '',
+      })
   }
   return entries
 }
@@ -73,15 +73,13 @@ function groupEntriesByDateAndLocation(entries: SummaryRow[]): {
 
 function getLocationBadgeClass(location: string): string {
   switch (location.toLowerCase()) {
-    case 'office':
+    case 'neal street':
       return 'location-office'
     case 'wfh':
       return 'location-wfh'
-    case 'client':
+    case 'client office':
       return 'location-client'
-    case 'pto':
-      return 'location-pto'
-    case 'off':
+    case 'holiday':
       return 'location-off'
     default:
       return ''
@@ -154,7 +152,7 @@ function App() {
   const handleLocationChange = (index: number, location: WorkLocation) => {
     const newEntries = [...weekEntries]
     newEntries[index].location = location
-    if (location !== 'Client') {
+    if (location !== 'Client Office') {
       newEntries[index].client = ''
     }
     setWeekEntries(newEntries)
@@ -178,7 +176,7 @@ function App() {
     }
 
     for (const entry of weekEntries) {
-      if (entry.location === 'Client' && !entry.client.trim()) {
+      if (entry.location === 'Client Office' && !entry.client.trim()) {
         return `Client name is required for ${entry.dayName}`
       }
     }
@@ -221,7 +219,7 @@ function App() {
   const groupedEntries = groupEntriesByDateAndLocation(summaryEntries)
 
   // Define location order for consistent display
-  const locationOrder = ['Office', 'WFH', 'Client', 'PTO', 'Off']
+  const locationOrder = ['Neal Street', 'WFH', 'Client Office', 'Holiday']
 
   return (
     <div className="container">
@@ -304,11 +302,10 @@ function App() {
                         )
                       }
                     >
-                      <option value="Office">Office</option>
+                      <option value="Neal Street">Neal Street</option>
                       <option value="WFH">WFH</option>
-                      <option value="Client">Client</option>
-                      <option value="PTO">PTO</option>
-                      <option value="Off">Off</option>
+                      <option value="Client Office">Client Office</option>
+                      <option value="Holiday">Holiday</option>
                     </select>
                   </td>
                   <td>
@@ -320,7 +317,7 @@ function App() {
                         handleClientChange(index, e.target.value)
                       }
                       placeholder="Client name"
-                      disabled={entry.location !== 'Client'}
+                      disabled={entry.location !== 'Client Office'}
                     />
                   </td>
                   <td>

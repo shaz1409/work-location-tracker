@@ -27,7 +27,7 @@ export interface WeekSummaryResponse {
   entries: SummaryRow[]
 }
 
-export type WorkLocation = 'Office' | 'WFH' | 'Client' | 'PTO' | 'Off'
+export type WorkLocation = 'Neal Street' | 'WFH' | 'Client Office' | 'Holiday'
 
 export interface WeekEntry {
   date: string

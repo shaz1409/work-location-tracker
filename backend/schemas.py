@@ -13,15 +13,15 @@ class EntryCreate(BaseModel):
     @field_validator("location")
     @classmethod
     def validate_location(cls, v):
-        valid_locations = {"Office", "WFH", "Client", "PTO", "Off"}
+        valid_locations = {"Neal Street", "WFH", "Client Office", "Holiday"}
         if v not in valid_locations:
             raise ValueError(f"Location must be one of: {valid_locations}")
         return v
 
     @model_validator(mode="after")
     def validate_client(self):
-        if self.location == "Client" and not self.client:
-            raise ValueError("Client name is required when location is 'Client'")
+        if self.location == "Client Office" and not self.client:
+            raise ValueError("Client name is required when location is 'Client Office'")
         return self
 
 
