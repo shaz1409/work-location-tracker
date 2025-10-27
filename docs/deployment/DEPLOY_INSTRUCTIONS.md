@@ -74,8 +74,8 @@
 - Make sure backend URL has no trailing slash
 
 ### Data resets?
-- SQLite on Render is ephemeral (data can reset)
-- For production, upgrade to PostgreSQL on Render (free tier available)
+- ✅ **FIXED!** Now using PostgreSQL with persistent storage
+- See `DEPLOY_WITH_PERSISTENT_DB.md` for details
 
 ---
 

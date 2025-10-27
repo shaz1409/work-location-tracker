@@ -60,10 +60,10 @@ See [docs/HOSTING_GUIDE.md](docs/deployment/HOSTING_GUIDE.md) for detailed instr
 
 ## 🛠️ Tech Stack
 
-- **Backend**: Python 3.11, FastAPI, SQLModel, SQLite
+- **Backend**: Python 3.11, FastAPI, SQLModel, PostgreSQL/SQLite
 - **Frontend**: React, TypeScript, Vite
 - **Styling**: CSS with glassmorphism effects
-- **Deployment**: Vercel + Render (free hosting)
+- **Deployment**: Vercel + Render (free hosting with persistent PostgreSQL)
 
 A web application for tracking where team members will work each day of the week.
 

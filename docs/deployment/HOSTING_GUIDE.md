@@ -127,8 +127,8 @@ The database will be created automatically, but you can add sample data:
 - Verify environment variables are set
 
 ### **Database issues:**
-- SQLite on Render uses ephemeral storage (data resets)
-- For production, upgrade to PostgreSQL (Render has free tier)
+- ✅ **FIXED!** Now using PostgreSQL with persistent storage
+- See `DEPLOY_WITH_PERSISTENT_DB.md` for setup instructions
 
 ---
 
