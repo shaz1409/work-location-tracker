@@ -5,9 +5,10 @@ services:
       - "8001:8000"
     volumes:
       - ./backend:/app
-      - ./worktracker.db:/app/worktracker.db
+      - db-storage:/app/data
     environment:
       - PYTHONPATH=/app
+      - DATABASE_PATH=/app/data/worktracker.db
     command: uvicorn app:app --host 0.0.0.0 --port 8000
 
   web:
@@ -20,3 +21,6 @@ services:
     environment:
       - VITE_API_BASE=http://localhost:8001
     command: npm run dev -- --host 0.0.0.0
+
+volumes:
+  db-storage:

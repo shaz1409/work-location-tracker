@@ -8,6 +8,8 @@ services:
     envVars:
       - key: PYTHONPATH
         value: /opt/render/project/src
+      - key: DATABASE_PATH
+        value: /app/data/worktracker.db
     disk:
       name: db-storage
       mountPath: /app
