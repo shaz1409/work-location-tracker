@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { WeekEntry, WorkLocation, SummaryRow } from './types'
 import { saveWeek, getWeekSummary, checkExistingEntries, getUserEntriesForWeek, getUsersForWeek } from './api'
 import teamConfig from '@/team-members.json'
+import clientConfig from '@/clients.json'
 
 type ViewMode = 'fill' | 'dashboard' | 'edit'
 
@@ -54,6 +55,30 @@ function groupEntriesByDateAndLocation(entries: SummaryRow[]): {
       return groups
     },
     {} as { [date: string]: { [location: string]: SummaryRow[] } }
+  )
+}
+
+function groupEntriesByClient(entries: SummaryRow[]): {
+  [client: string]: {
+    [date: string]: SummaryRow[]
+  }
+} {
+  return entries.reduce(
+    (groups, entry) => {
+      // Only group Client Office entries by client
+      if (entry.location === 'Client Office' && entry.client) {
+        const clientName = entry.client
+        if (!groups[clientName]) {
+          groups[clientName] = {}
+        }
+        if (!groups[clientName][entry.date]) {
+          groups[clientName][entry.date] = []
+        }
+        groups[clientName][entry.date].push(entry)
+      }
+      return groups
+    },
+    {} as { [client: string]: { [date: string]: SummaryRow[] } }
   )
 }
 
@@ -182,7 +207,7 @@ function App() {
             location: existing.location as WorkLocation,
             client: existing.client || '',
             notes: existing.notes || '',
-            isCustomClient: !['FT', 'BCG', 'McKinsey', 'Deloitte', 'PwC', 'EY', 'KPMG'].includes(existing.client || '')
+            isCustomClient: !clientConfig.clients.includes(existing.client || '')
           }
         }
         return entry
@@ -342,6 +367,7 @@ function App() {
   }
 
   const groupedEntries = groupEntriesByDateAndLocation(summaryEntries)
+  const clientEntries = groupEntriesByClient(summaryEntries)
 
   // Define location order for consistent display
   const locationOrder = ['Neal Street', 'WFH', 'Client Office', 'Holiday']
@@ -608,13 +634,11 @@ function App() {
                             }}
                           >
                             <option value="">Select client</option>
-                            <option value="FT">FT</option>
-                            <option value="BCG">BCG</option>
-                            <option value="McKinsey">McKinsey</option>
-                            <option value="Deloitte">Deloitte</option>
-                            <option value="PwC">PwC</option>
-                            <option value="EY">EY</option>
-                            <option value="KPMG">KPMG</option>
+                            {clientConfig.clients.map((client) => (
+                              <option key={client} value={client}>
+                                {client}
+                              </option>
+                            ))}
                             <option value="Other">Other</option>
                           </select>
                         </div>
@@ -660,44 +684,97 @@ function App() {
               <p>Team members haven't submitted their work locations yet.</p>
             </div>
           ) : (
-            Object.keys(groupedEntries)
-              .sort()
-              .map((date) => (
-                <div key={date} className="day-section">
-                  <h3>
-                    {new Date(date).toLocaleDateString('en-US', {
-                      weekday: 'long',
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric',
-                    })}
-                  </h3>
+            <>
+              {/* Regular by location view */}
+              {Object.keys(groupedEntries)
+                .sort()
+                .map((date) => (
+                  <div key={date} className="day-section">
+                    <h3>
+                      {new Date(date).toLocaleDateString('en-US', {
+                        weekday: 'long',
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                      })}
+                    </h3>
 
-                  {locationOrder.map((location) => {
-                    const entriesForLocation = groupedEntries[date][location] || []
-                    if (entriesForLocation.length === 0) return null
+                    {locationOrder.map((location) => {
+                      const entriesForLocation = groupedEntries[date][location] || []
+                      if (entriesForLocation.length === 0) return null
 
-                    return (
-                      <div key={location} className="location-group">
-                        <div className="location-group-title">
-                          <span className={`location-badge ${getLocationBadgeClass(location)}`}>
-                            {location}
-                          </span>
-                          <span className="location-people">
-                            {entriesForLocation.map((entry, index) => (
-                              <span key={`${entry.user_name}-${index}`} className="person-name-inline">
-                                {entry.user_name}
-                                {entry.client && ` (${entry.client})`}
-                                {index < entriesForLocation.length - 1 && ', '}
-                              </span>
-                            ))}
-                          </span>
+                      return (
+                        <div key={location} className="location-group">
+                          <div className="location-group-title">
+                            <span className={`location-badge ${getLocationBadgeClass(location)}`}>
+                              {location}
+                            </span>
+                            <span className="location-people">
+                              {entriesForLocation.map((entry, index) => (
+                                <span key={`${entry.user_name}-${index}`} className="person-name-inline">
+                                  {entry.user_name}
+                                  {entry.client && ` (${entry.client})`}
+                                  {index < entriesForLocation.length - 1 && ', '}
+                                </span>
+                              ))}
+                            </span>
+                          </div>
                         </div>
+                      )
+                    })}
+                  </div>
+                ))}
+              
+              {/* Client-based view */}
+              {Object.keys(clientEntries).length > 0 && (
+                <div className="day-section" style={{ marginTop: '40px', borderTop: '2px solid #ffffff', paddingTop: '20px' }}>
+                  <h2 style={{ marginBottom: '20px', fontSize: '20px', borderBottom: '2px solid #ffffff', paddingBottom: '10px' }}>
+                    By Client
+                  </h2>
+                  
+                  {Object.keys(clientEntries)
+                    .sort()
+                    .map((client) => (
+                      <div key={client} className="location-group" style={{ marginBottom: '20px', background: '#0a0a0a', border: '2px solid #ffffff', borderRadius: '8px', padding: '15px' }}>
+                        <div style={{ fontSize: '18px', fontWeight: '700', marginBottom: '15px', color: '#ffff00', textTransform: 'uppercase' }}>
+                          📊 {client}
+                        </div>
+                        
+                        {Object.keys(clientEntries[client])
+                          .sort()
+                          .map((date) => (
+                            <div key={date} style={{ marginBottom: '10px', paddingLeft: '15px' }}>
+                              <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: '#00ffff' }}>
+                                {new Date(date).toLocaleDateString('en-US', {
+                                  weekday: 'short',
+                                  month: 'short',
+                                  day: 'numeric',
+                                })}
+                              </div>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                {clientEntries[client][date].map((entry, index) => (
+                                  <span 
+                                    key={`${entry.user_name}-${index}`} 
+                                    style={{ 
+                                      background: '#000000', 
+                                      border: '2px solid #ffffff', 
+                                      borderRadius: '4px', 
+                                      padding: '6px 12px',
+                                      fontWeight: '600',
+                                      fontSize: '13px'
+                                    }}
+                                  >
+                                    {entry.user_name}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
                       </div>
-                    )
-                  })}
+                    ))}
                 </div>
-              ))
+              )}
+            </>
           )}
         </div>
       )}
