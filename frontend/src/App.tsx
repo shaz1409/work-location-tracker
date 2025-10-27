@@ -734,10 +734,15 @@ function App() {
                   
                   {Object.keys(clientEntries)
                     .sort()
-                    .map((client) => (
+                    .map((client) => {
+                      // Check if this is a custom client (not in predefined list)
+                      const isCustomClient = !clientConfig.clients.includes(client)
+                      const clientHeading = isCustomClient ? `Other (${client})` : client
+                      
+                      return (
                       <div key={client} className="location-group" style={{ marginBottom: '20px', background: '#0a0a0a', border: '2px solid #ffffff', borderRadius: '8px', padding: '15px' }}>
                         <div style={{ fontSize: '18px', fontWeight: '700', marginBottom: '15px', color: '#ffff00', textTransform: 'uppercase' }}>
-                          📊 {client}
+                          📊 {clientHeading}
                         </div>
                         
                         {Object.keys(clientEntries[client])
@@ -771,7 +776,7 @@ function App() {
                             </div>
                           ))}
                       </div>
-                    ))}
+                    )})}
                 </div>
               )}
             </>
