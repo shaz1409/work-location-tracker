@@ -35,7 +35,10 @@ export interface WeekEntry {
   location: WorkLocation
   client: string
   notes: string
+  isCustomClient: boolean
 }
+
+export type ClientOption = 'FT' | 'Other'
 
 export interface ExistingEntry {
   date: string

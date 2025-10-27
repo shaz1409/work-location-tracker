@@ -31,6 +31,7 @@ function generateWeekEntries(weekStart: Date): WeekEntry[] {
         location: 'Neal Street' as WorkLocation,
         client: '',
         notes: '',
+        isCustomClient: false,
       })
   }
   return entries
@@ -180,7 +181,8 @@ function App() {
             ...entry,
             location: existing.location as WorkLocation,
             client: existing.client || '',
-            notes: existing.notes || ''
+            notes: existing.notes || '',
+            isCustomClient: !['FT', 'BCG', 'McKinsey', 'Deloitte', 'PwC', 'EY', 'KPMG'].includes(existing.client || '')
           }
         }
         return entry
@@ -229,6 +231,7 @@ function App() {
     newEntries[index].location = location
     if (location !== 'Client Office') {
       newEntries[index].client = ''
+      newEntries[index].isCustomClient = false
     }
     setWeekEntries(newEntries)
   }
@@ -236,6 +239,18 @@ function App() {
   const handleClientChange = (index: number, client: string) => {
     const newEntries = [...weekEntries]
     newEntries[index].client = client
+    setWeekEntries(newEntries)
+  }
+
+  const handleClientTypeChange = (index: number, clientType: string) => {
+    const newEntries = [...weekEntries]
+    if (clientType === 'Other') {
+      newEntries[index].isCustomClient = true
+      newEntries[index].client = ''
+    } else {
+      newEntries[index].isCustomClient = false
+      newEntries[index].client = clientType
+    }
     setWeekEntries(newEntries)
   }
 
@@ -561,16 +576,52 @@ function App() {
                     </select>
                   </td>
                   <td>
-                    <input
-                      className="client-input"
-                      type="text"
-                      value={entry.client}
-                      onChange={(e) =>
-                        handleClientChange(index, e.target.value)
-                      }
-                      placeholder="Client name"
-                      disabled={entry.location !== 'Client Office'}
-                    />
+                    {entry.location === 'Client Office' ? (
+                      entry.isCustomClient ? (
+                        <input
+                          className="client-input"
+                          type="text"
+                          value={entry.client}
+                          onChange={(e) =>
+                            handleClientChange(index, e.target.value)
+                          }
+                          placeholder="Enter client name"
+                          style={{ marginTop: '4px' }}
+                        />
+                      ) : (
+                        <div>
+                          <select
+                            value={entry.client || ''}
+                            onChange={(e) =>
+                              handleClientTypeChange(index, e.target.value)
+                            }
+                            style={{
+                              width: '100%',
+                              padding: '8px',
+                              border: '2px solid #ffffff',
+                              borderRadius: '6px',
+                              fontSize: '14px',
+                              background: '#000000',
+                              color: '#ffffff',
+                              fontWeight: '600',
+                              marginBottom: '4px',
+                            }}
+                          >
+                            <option value="">Select client</option>
+                            <option value="FT">FT</option>
+                            <option value="BCG">BCG</option>
+                            <option value="McKinsey">McKinsey</option>
+                            <option value="Deloitte">Deloitte</option>
+                            <option value="PwC">PwC</option>
+                            <option value="EY">EY</option>
+                            <option value="KPMG">KPMG</option>
+                            <option value="Other">Other</option>
+                          </select>
+                        </div>
+                      )
+                    ) : (
+                      <span style={{ color: '#666', fontStyle: 'italic' }}>N/A</span>
+                    )}
                   </td>
                   <td>
                     <input
