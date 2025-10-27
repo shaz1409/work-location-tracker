@@ -46,3 +46,12 @@ export async function getWeekSummary(
 ): Promise<WeekSummaryResponse> {
   return apiCall<WeekSummaryResponse>(`/summary/week?week_start=${weekStart}`)
 }
+
+export async function checkExistingEntries(
+  userName: string,
+  weekStart: string
+): Promise<{ exists: boolean; count: number; entries: any[] }> {
+  return apiCall<{ exists: boolean; count: number; entries: any[] }>(
+    `/entries/check?user_name=${encodeURIComponent(userName)}&week_start=${weekStart}`
+  )
+}

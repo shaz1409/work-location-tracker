@@ -453,3 +453,13 @@ body {
     align-items: flex-start;
     gap: 5px;
   }
+
+.update-warning {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: rgba(100, 100, 0, 0.3);
+  border: 1px solid #888888;
+  border-radius: 6px;
+  color: #ffffcc;
+  font-size: 14px;
+}

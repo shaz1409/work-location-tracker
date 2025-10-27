@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { WeekEntry, WorkLocation, SummaryRow } from './types'
-import { saveWeek, getWeekSummary } from './api'
+import { saveWeek, getWeekSummary, checkExistingEntries } from './api'
 
 type ViewMode = 'fill' | 'dashboard'
 
@@ -97,6 +97,7 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
+  const [existingEntriesCount, setExistingEntriesCount] = useState(0)
 
   // Initialize week entries when week start changes
   useEffect(() => {
@@ -109,6 +110,23 @@ function App() {
       loadWeekSummary()
     }
   }, [viewMode, weekStart])
+
+  // Check for existing entries when user name or week changes
+  useEffect(() => {
+    const checkForExisting = async () => {
+      if (userName.trim()) {
+        try {
+          const result = await checkExistingEntries(userName.trim(), formatDate(weekStart))
+          setExistingEntriesCount(result.exists ? result.count : 0)
+        } catch (err) {
+          setExistingEntriesCount(0)
+        }
+      } else {
+        setExistingEntriesCount(0)
+      }
+    }
+    checkForExisting()
+  }, [userName, weekStart])
 
   const loadWeekSummary = async () => {
     try {
@@ -253,6 +271,12 @@ function App() {
               placeholder="Enter your name"
               required
             />
+            {existingEntriesCount > 0 && (
+              <div className="update-warning">
+                ℹ️ You already have {existingEntriesCount} entry/entries for this week. 
+                Submitting will replace them.
+              </div>
+            )}
           </div>
 
           <table className="week-table">

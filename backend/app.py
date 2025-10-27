@@ -58,13 +58,23 @@ def bulk_upsert_entries(
         min_date = min(dates)
         max_date = max(dates)
 
-        # Delete existing entries for this user in the date range
-        delete_stmt = delete(Entry).where(
-            Entry.user_name == request.user_name,
-            Entry.date >= min_date,
-            Entry.date <= max_date,
-        )
-        session.exec(delete_stmt)
+        # Delete existing entries for this user in the date range (case-insensitive matching)
+        # Fetch all entries in date range and filter by case-insensitive name match
+        existing_entries = session.exec(
+            select(Entry)
+            .where(Entry.date >= min_date)
+            .where(Entry.date <= max_date)
+        ).all()
+        
+        # Delete entries where user_name matches case-insensitively
+        entries_to_delete = [
+            e.id for e in existing_entries 
+            if e.user_name.lower() == request.user_name.lower()
+        ]
+        
+        if entries_to_delete:
+            delete_ids_stmt = delete(Entry).where(Entry.id.in_(entries_to_delete))
+            session.exec(delete_ids_stmt)
 
         # Insert new entries
         new_entries = []
@@ -205,6 +215,54 @@ def delete_entry(entry_id: int, session: Session = Depends(get_session)):
         session.rollback()
         logger.error(f"Error deleting entry: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/entries/check")
+def check_existing_entries(
+    user_name: str = Query(..., description="User name to check"),
+    week_start: str = Query(..., description="Week start date in YYYY-MM-DD format"),
+    session: Session = Depends(get_session),
+):
+    """Check if a user already has entries for a given week (case-insensitive)."""
+    logger.info(f"Check entries request for user: {user_name}, week: {week_start}")
+    
+    try:
+        # Calculate week end date (Friday)
+        start_date = datetime.strptime(week_start, "%Y-%m-%d").date()
+        end_date = start_date + timedelta(days=4)
+        
+        # Get all entries in the week
+        entries = session.exec(
+            select(Entry)
+            .where(Entry.date >= week_start)
+            .where(Entry.date <= end_date.strftime("%Y-%m-%d"))
+        ).all()
+        
+        # Filter for case-insensitive name match
+        user_entries = [
+            e for e in entries 
+            if e.user_name.lower() == user_name.lower()
+        ]
+        
+        return {
+            "exists": len(user_entries) > 0,
+            "count": len(user_entries),
+            "entries": [
+                {
+                    "date": e.date,
+                    "location": e.location,
+                    "client": e.client,
+                    "notes": e.notes,
+                }
+                for e in user_entries
+            ]
+        }
+    
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="Invalid date format")
+    except Exception as e:
+        logger.error(f"Error checking entries: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/")
