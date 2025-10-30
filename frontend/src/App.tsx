@@ -115,6 +115,7 @@ function App() {
   const [userList, setUserList] = useState<string[]>([])
   const [showUserDropdown, setShowUserDropdown] = useState(false)
   const [userSearchTerm, setUserSearchTerm] = useState('')
+  const [editSearchTerm, setEditSearchTerm] = useState('')
   
   // Overwrite confirmation + undo
   const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false)
@@ -556,6 +557,14 @@ function App() {
       {viewMode === 'edit' && (
         <div className="form-section">
           <h2>Select your name to edit:</h2>
+          <div className="form-group">
+            <input
+              type="text"
+              value={editSearchTerm}
+              onChange={(e) => setEditSearchTerm(e.target.value)}
+              placeholder="Search people who have filled this week"
+            />
+          </div>
           {loading ? (
             <div className="empty-state">
               <h3>Loading...</h3>
@@ -567,7 +576,11 @@ function App() {
             </div>
           ) : (
             <div className="user-list">
-              {userList.map((user, index) => (
+              {userList
+                .filter((u) =>
+                  u.toLowerCase().includes(editSearchTerm.toLowerCase())
+                )
+                .map((user, index) => (
                 <button
                   key={index}
                   className="user-card"
@@ -577,6 +590,11 @@ function App() {
                   {user}
                 </button>
               ))}
+              {userList.filter((u) => u.toLowerCase().includes(editSearchTerm.toLowerCase())).length === 0 && (
+                <div className="empty-state" style={{ gridColumn: '1 / -1' }}>
+                  <h3>No matches</h3>
+                </div>
+              )}
             </div>
           )}
         </div>
