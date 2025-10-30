@@ -29,6 +29,42 @@ function formatWeekRangeLabel(weekStart: Date): string {
   return `${startStr} → ${endStr}`
 }
 
+// Location normalization helpers to be compatible with both old and new APIs
+function normalizeLocationFromApi(location: string): WorkLocation {
+  switch (location) {
+    case 'Office':
+      return 'Neal Street'
+    case 'Client':
+      return 'Client Office'
+    case 'Off':
+    case 'PTO':
+      return 'Holiday'
+    case 'WFH':
+      return 'WFH'
+    case 'Neal Street':
+    case 'Client Office':
+    case 'Holiday':
+      return location as WorkLocation
+    default:
+      return location as WorkLocation
+  }
+}
+
+function normalizeLocationToApi(location: WorkLocation): string {
+  // Prefer legacy keys for maximum compatibility with older backends
+  switch (location) {
+    case 'Neal Street':
+      return 'Office'
+    case 'Client Office':
+      return 'Client'
+    case 'Holiday':
+      return 'Off'
+    case 'WFH':
+    default:
+      return location
+  }
+}
+
 function generateWeekEntries(weekStart: Date): WeekEntry[] {
   const entries: WeekEntry[] = []
   // Only generate Monday-Friday (5 days)
@@ -217,7 +253,7 @@ function App() {
         if (existing) {
           return {
             ...entry,
-            location: existing.location as WorkLocation,
+            location: normalizeLocationFromApi(existing.location) as WorkLocation,
             client: existing.client || '',
             notes: existing.notes || '',
             isCustomClient: !clientOptions.includes(existing.client || '')
@@ -246,7 +282,12 @@ function App() {
       setLoading(true)
       setError('')
       const response = await getWeekSummary(formatDate(weekStart))
-      setSummaryEntries(response.entries)
+      // Normalize any legacy location names coming from API
+      const normalized = response.entries.map(e => ({
+        ...e,
+        location: normalizeLocationFromApi(e.location),
+      }))
+      setSummaryEntries(normalized)
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Failed to load week summary'
@@ -398,7 +439,7 @@ function App() {
         user_name: userName.trim(),
         entries: weekEntries.map((entry) => ({
           date: entry.date,
-          location: entry.location,
+          location: normalizeLocationToApi(entry.location),
           client: entry.client.trim() || undefined,
           notes: entry.notes.trim() || undefined,
         })),
