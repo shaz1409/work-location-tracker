@@ -278,10 +278,9 @@ function App() {
   const openNativeDatePicker = () => {
     const el = dateInputRef.current
     if (!el) return
-    // @ts-expect-error: showPicker not in all TS lib dom types
-    if (typeof el.showPicker === 'function') {
-      // @ts-ignore
-      el.showPicker()
+    const anyEl = el as any
+    if (typeof anyEl.showPicker === 'function') {
+      anyEl.showPicker()
     } else {
       el.focus()
       el.click()
