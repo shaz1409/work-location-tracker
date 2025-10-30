@@ -29,6 +29,15 @@ function getWeekDates(weekStart: Date): Date[] {
   return dates
 }
 
+function formatWeekRangeLabel(weekStart: Date): string {
+  const start = new Date(weekStart)
+  const end = new Date(weekStart)
+  end.setDate(start.getDate() + 4)
+  const startStr = start.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+  const endStr = end.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  return `${startStr} → ${endStr}`
+}
+
 function generateWeekEntries(weekStart: Date): WeekEntry[] {
   const entries: WeekEntry[] = []
   // Only generate Monday-Friday (5 days)
@@ -522,20 +531,41 @@ function App() {
       </div>
 
       <div className="week-selector">
-        <label htmlFor="week-start">Week starting:</label>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <button className="preset-btn" type="button" onClick={goToPrevWeek}>{'<'} Prev</button>
+
+          {/* Hidden native input for calendar; themed launcher button opens it */}
           <input
             ref={dateInputRef}
             id="week-start"
             type="date"
             value={formatDate(weekStart)}
             onChange={handleWeekStartChange}
+            style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+            aria-hidden="true"
+            tabIndex={-1}
           />
-          <button className="preset-btn" type="button" onClick={goToNextWeek}>Next {'>'}</button>
-          <button className="preset-btn" type="button" onClick={openNativeDatePicker}>
-            Open calendar
+
+          <button
+            type="button"
+            onClick={openNativeDatePicker}
+            style={{
+              padding: '12px 16px',
+              border: '2px solid #ffffff',
+              background: '#000000',
+              color: '#ffffff',
+              borderRadius: 8,
+              cursor: 'pointer',
+              fontWeight: 700,
+              letterSpacing: 1,
+              boxShadow: '0 0 15px rgba(255,255,255,0.2)'
+            }}
+            aria-label="Open calendar to select week"
+          >
+            📅 Select week: {formatWeekRangeLabel(weekStart)}
           </button>
+
+          <button className="preset-btn" type="button" onClick={goToNextWeek}>Next {'>'}</button>
         </div>
 
         {/* Week strip highlighting Mon–Fri */}
