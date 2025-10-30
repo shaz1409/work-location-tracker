@@ -107,6 +107,12 @@ function App() {
   const [showUserDropdown, setShowUserDropdown] = useState(false)
   const [userSearchTerm, setUserSearchTerm] = useState('')
   
+  // Overwrite confirmation + undo
+  const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false)
+  const [isOverwriteConfirmed, setIsOverwriteConfirmed] = useState(false)
+  const [backupBeforeSave, setBackupBeforeSave] = useState<Array<{date: string; location: string; client?: string; notes?: string}>>([])
+  const [showUndoBar, setShowUndoBar] = useState(false)
+  
   // Preset list of team member names (loaded from config file)
   const allUsers = teamConfig.teamMembers
 
@@ -301,8 +307,14 @@ function App() {
     }
 
     for (const entry of weekEntries) {
-      if (entry.location === 'Client Office' && !entry.client.trim()) {
-        return `Client name is required for ${entry.dayName}`
+      if (entry.location === 'Client Office') {
+        // If "Other" was selected, isCustomClient=true and client must be non-empty
+        if (entry.isCustomClient && !entry.client.trim()) {
+          return `Please enter a client name for ${entry.dayName}`
+        }
+        if (!entry.isCustomClient && !entry.client.trim()) {
+          return `Client name is required for ${entry.dayName}`
+        }
       }
     }
 
@@ -316,9 +328,28 @@ function App() {
       return
     }
 
+    // Require explicit confirmation if overwriting
+    if (existingEntriesCount > 0 && !isOverwriteConfirmed) {
+      setShowOverwriteConfirm(true)
+      return
+    }
+
     try {
       setLoading(true)
       setError('')
+
+      // Backup current entries from DB (for undo) if we are overwriting
+      let backup: Array<{date: string; location: string; client?: string; notes?: string}> = []
+      if (existingEntriesCount > 0) {
+        try {
+          const current = await getUserEntriesForWeek(userName.trim(), formatDate(weekStart))
+          backup = current.map(e => ({ date: e.date, location: e.location, client: e.client, notes: e.notes }))
+          setBackupBeforeSave(backup)
+        } catch {
+          // if backup fails, proceed without undo
+          setBackupBeforeSave([])
+        }
+      }
 
       const request = {
         user_name: userName.trim(),
@@ -335,9 +366,57 @@ function App() {
       setTimeout(() => setToast(''), 3000)
       setIsEditMode(false)
       setViewMode('dashboard')
+
+      if (existingEntriesCount > 0 && backup.length > 0) {
+        setShowUndoBar(true)
+        // auto-hide undo after 15s
+        setTimeout(() => setShowUndoBar(false), 15000)
+      }
+
+      // reset confirmation state
+      setShowOverwriteConfirm(false)
+      setIsOverwriteConfirmed(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save week')
     } finally {
+      setLoading(false)
+    }
+  }
+
+  const confirmOverwriteAndSave = async () => {
+    setIsOverwriteConfirmed(true)
+    setShowOverwriteConfirm(false)
+    await handleSaveWeek()
+  }
+
+  const cancelOverwrite = () => {
+    setShowOverwriteConfirm(false)
+    setIsOverwriteConfirmed(false)
+  }
+
+  const handleUndo = async () => {
+    if (!backupBeforeSave.length) {
+      setShowUndoBar(false)
+      return
+    }
+    try {
+      setLoading(true)
+      const request = {
+        user_name: userName.trim(),
+        entries: backupBeforeSave.map(e => ({
+          date: e.date,
+          location: e.location as any,
+          client: e.client || undefined,
+          notes: e.notes || undefined,
+        })),
+      }
+      await saveWeek(request)
+      setToast('Reverted previous entries')
+      setTimeout(() => setToast(''), 3000)
+    } catch (e) {
+      setError('Failed to undo changes')
+    } finally {
+      setShowUndoBar(false)
       setLoading(false)
     }
   }
@@ -431,6 +510,29 @@ function App() {
 
       {viewMode === 'fill' && (
         <div className="form-section">
+          {/* Overwrite confirmation bar */}
+          {showOverwriteConfirm && (
+            <div style={{
+              marginBottom: '12px',
+              padding: '12px 16px',
+              background: '#1a1a00',
+              border: '2px solid #ffff00',
+              borderRadius: '8px',
+              color: '#ffffcc',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px'
+            }}>
+              <div style={{ fontWeight: 700 }}>
+                Update week for {userName.trim()}? This replaces previous entries.
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button className="preset-btn" onClick={cancelOverwrite} type="button">Cancel</button>
+                <button className="preset-btn" onClick={confirmOverwriteAndSave} type="button" style={{ borderColor: '#00ff00' }}>Confirm update</button>
+              </div>
+            </div>
+          )}
           <div className="form-group" style={{ position: 'relative' }}>
             <label htmlFor="user-name">Your name:</label>
             <div style={{ position: 'relative' }}>
@@ -642,6 +744,13 @@ function App() {
           >
             {loading ? 'Saving...' : isEditMode ? 'Update my week' : 'Save my week'}
           </button>
+        </div>
+      )}
+
+      {/* Undo bar after save */}
+      {showUndoBar && (
+        <div className="toast" style={{ position: 'fixed', bottom: 20, left: 20, right: 'auto', background: '#000', color: '#00ff00', borderColor: '#00ff00' }}>
+          Updated. <button className="preset-btn" onClick={handleUndo} type="button" style={{ marginLeft: 8 }}>Undo</button>
         </div>
       )}
 
