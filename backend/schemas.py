@@ -13,14 +13,22 @@ class EntryCreate(BaseModel):
     @field_validator("location")
     @classmethod
     def validate_location(cls, v):
+        # Accept both new and legacy names and normalize to new names
+        legacy_map = {
+            "Office": "Neal Street",
+            "Client": "Client Office",
+            "Off": "Holiday",
+            "PTO": "Holiday",
+        }
+        normalized = legacy_map.get(v, v)
         valid_locations = {"Neal Street", "WFH", "Client Office", "Holiday"}
-        if v not in valid_locations:
+        if normalized not in valid_locations:
             raise ValueError(f"Location must be one of: {valid_locations}")
-        return v
+        return normalized
 
     @model_validator(mode="after")
     def validate_client(self):
-        if self.location == "Client Office" and not self.client:
+        if self.location in {"Client Office", "Client"} and not self.client:
             raise ValueError("Client name is required when location is 'Client Office'")
         return self
 
