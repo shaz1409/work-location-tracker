@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { WeekEntry, WorkLocation, SummaryRow } from './types'
-import { saveWeek, getWeekSummary, checkExistingEntries, getUserEntriesForWeek, getUsersForWeek } from './api'
+import { saveWeek, getWeekSummary, checkExistingEntries, getUserEntriesForWeek, getUsersForWeek, getAllUsers } from './api'
 // Load team and client lists from public at runtime (no imports from root)
 
 type ViewMode = 'fill' | 'dashboard' | 'edit'
@@ -232,8 +232,15 @@ function App() {
       const result = await getUsersForWeek(formatDate(weekStart))
       setUserList(result.users)
     } catch (err) {
-      setError('Failed to load user list')
-      setUserList([])
+      // Fallback: try all users across all time
+      try {
+        const all = await getAllUsers()
+        setUserList(all.users)
+        // do not surface an error if fallback worked
+      } catch (e) {
+        setError('Failed to load user list')
+        setUserList([])
+      }
     } finally {
       setLoading(false)
     }
