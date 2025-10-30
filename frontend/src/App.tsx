@@ -20,6 +20,16 @@ function getDayName(date: Date): string {
   return date.toLocaleDateString('en-US', { weekday: 'long' })
 }
 
+function getWeekDates(weekStart: Date): Date[] {
+  const dates: Date[] = []
+  for (let i = 0; i < 5; i++) {
+    const d = new Date(weekStart)
+    d.setDate(weekStart.getDate() + i)
+    dates.push(d)
+  }
+  return dates
+}
+
 function generateWeekEntries(weekStart: Date): WeekEntry[] {
   const entries: WeekEntry[] = []
   // Only generate Monday-Friday (5 days)
@@ -473,6 +483,45 @@ function App() {
           value={formatDate(weekStart)}
           onChange={handleWeekStartChange}
         />
+
+        {/* Week strip highlighting Mon–Fri */}
+        <div style={{ marginTop: 12 }}>
+          <div style={{
+            display: 'flex',
+            gap: '8px',
+            flexWrap: 'wrap'
+          }}>
+            {getWeekDates(weekStart).map((d, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => {
+                  // Allow selecting any day; snap to Monday of that day
+                  const monday = getMondayOfWeek(new Date(d))
+                  setWeekStart(new Date(monday))
+                }}
+                title={d.toDateString()}
+                style={{
+                  padding: '8px 10px',
+                  border: '2px solid #ffffff',
+                  background: '#000000',
+                  color: '#ffffff',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  fontWeight: 700,
+                  letterSpacing: 1,
+                }}
+              >
+                {d.toLocaleDateString('en-US', { weekday: 'short' })}
+                {' '}
+                {d.getDate()}
+              </button>
+            ))}
+          </div>
+          <div style={{ marginTop: 6, color: '#cccccc', fontSize: 12 }}>
+            Select any day; we’ll highlight the whole week.
+          </div>
+        </div>
       </div>
 
       {error && <div className="error-message">{error}</div>}
