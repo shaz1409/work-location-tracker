@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { WeekEntry, WorkLocation, SummaryRow } from './types'
 import { saveWeek, getWeekSummary, checkExistingEntries, getUserEntriesForWeek, getUsersForWeek } from './api'
 import teamConfig from '@/team-members.json'
@@ -243,6 +243,31 @@ function App() {
     setWeekStart(monday)
   }
 
+  const goToPrevWeek = () => {
+    const d = new Date(weekStart)
+    d.setDate(d.getDate() - 7)
+    setWeekStart(getMondayOfWeek(d))
+  }
+
+  const goToNextWeek = () => {
+    const d = new Date(weekStart)
+    d.setDate(d.getDate() + 7)
+    setWeekStart(getMondayOfWeek(d))
+  }
+
+  const openNativeDatePicker = () => {
+    const el = dateInputRef.current
+    if (!el) return
+    // @ts-expect-error: showPicker not in all TS lib dom types
+    if (typeof el.showPicker === 'function') {
+      // @ts-ignore
+      el.showPicker()
+    } else {
+      el.focus()
+      el.click()
+    }
+  }
+
   const handleLocationChange = (index: number, location: WorkLocation) => {
     const newEntries = [...weekEntries]
     newEntries[index].location = location
@@ -436,6 +461,8 @@ function App() {
   // Define location order for consistent display
   const locationOrder = ['Neal Street', 'WFH', 'Client Office', 'Holiday']
 
+  const dateInputRef = useRef<HTMLInputElement | null>(null)
+
   return (
     <div className="container">
       <div className="header">
@@ -477,12 +504,20 @@ function App() {
 
       <div className="week-selector">
         <label htmlFor="week-start">Week starting:</label>
-        <input
-          id="week-start"
-          type="date"
-          value={formatDate(weekStart)}
-          onChange={handleWeekStartChange}
-        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <button className="preset-btn" type="button" onClick={goToPrevWeek}>{'<'} Prev</button>
+          <input
+            ref={dateInputRef}
+            id="week-start"
+            type="date"
+            value={formatDate(weekStart)}
+            onChange={handleWeekStartChange}
+          />
+          <button className="preset-btn" type="button" onClick={goToNextWeek}>Next {'>'}</button>
+          <button className="preset-btn" type="button" onClick={openNativeDatePicker}>
+            Open calendar
+          </button>
+        </div>
 
         {/* Week strip highlighting Mon–Fri */}
         <div style={{ marginTop: 12 }}>
