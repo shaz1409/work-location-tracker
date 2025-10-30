@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { WeekEntry, WorkLocation, SummaryRow } from './types'
 import { saveWeek, getWeekSummary, checkExistingEntries, getUserEntriesForWeek, getUsersForWeek } from './api'
-import teamConfig from '@/team-members.json'
-import clientConfig from '@/clients.json'
+// Load team and client lists from public at runtime (no imports from root)
 
 type ViewMode = 'fill' | 'dashboard' | 'edit'
 
@@ -123,8 +122,9 @@ function App() {
   const [backupBeforeSave, setBackupBeforeSave] = useState<Array<{date: string; location: string; client?: string; notes?: string}>>([])
   const [showUndoBar, setShowUndoBar] = useState(false)
   
-  // Preset list of team member names (loaded from config file)
-  const allUsers = teamConfig.teamMembers
+  // Runtime-loaded config
+  const [allUsers, setAllUsers] = useState<string[]>([])
+  const [clientOptions, setClientOptions] = useState<string[]>([])
 
   // Save user name to localStorage whenever it changes
   useEffect(() => {
@@ -137,6 +137,26 @@ function App() {
   useEffect(() => {
     setWeekEntries(generateWeekEntries(weekStart))
   }, [weekStart])
+
+  // Load client and team lists from public at runtime
+  useEffect(() => {
+    const loadConfigs = async () => {
+      try {
+        const [clientsResp, teamResp] = await Promise.all([
+          fetch('/clients.json'),
+          fetch('/team-members.json'),
+        ])
+        const clientsJson = await clientsResp.json()
+        const teamJson = await teamResp.json()
+        setClientOptions(Array.isArray(clientsJson?.clients) ? clientsJson.clients : [])
+        setAllUsers(Array.isArray(teamJson?.teamMembers) ? teamJson.teamMembers : [])
+      } catch (e) {
+        setClientOptions([])
+        setAllUsers([])
+      }
+    }
+    loadConfigs()
+  }, [])
 
   // Load summary when switching to dashboard view
   useEffect(() => {
@@ -199,7 +219,7 @@ function App() {
             location: existing.location as WorkLocation,
             client: existing.client || '',
             notes: existing.notes || '',
-            isCustomClient: !clientConfig.clients.includes(existing.client || '')
+            isCustomClient: !clientOptions.includes(existing.client || '')
           }
         }
         return entry
@@ -652,7 +672,7 @@ function App() {
                     boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
                   }}
                 >
-                  {allUsers
+            {allUsers
                     .filter(user => 
                       user.toLowerCase().includes(userSearchTerm.toLowerCase())
                     )
@@ -795,7 +815,7 @@ function App() {
                             }}
                           >
                             <option value="">Select client</option>
-                            {clientConfig.clients.map((client) => (
+                            {clientOptions.map((client) => (
                               <option key={client} value={client}>
                                 {client}
                               </option>
@@ -890,7 +910,7 @@ function App() {
                               </span>
                             </div>
                             {Object.keys(entriesByClient).sort().map((client) => {
-                              const isCustomClient = !clientConfig.clients.includes(client)
+                              const isCustomClient = !clientOptions.includes(client)
                               const clientHeading = isCustomClient ? `Other (${client})` : client
                               
                               return (
