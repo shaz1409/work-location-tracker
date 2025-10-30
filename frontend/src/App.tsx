@@ -321,7 +321,7 @@ function App() {
     setWeekEntries(newEntries)
   }
 
-  const applyPreset = (presetType: 'all-office' | 'all-wfh' | 'hybrid') => {
+  const applyPreset = (presetType: 'all-office' | 'all-wfh') => {
     const newEntries = [...weekEntries]
     
     if (presetType === 'all-office') {
@@ -334,18 +334,6 @@ function App() {
       newEntries.forEach(entry => {
         entry.location = 'WFH'
         entry.client = ''
-        entry.notes = ''
-      })
-    } else if (presetType === 'hybrid') {
-      // 3 days office, 2 days WFH
-      newEntries.forEach((entry, index) => {
-        if (index < 3) {
-          entry.location = 'Neal Street'
-          entry.client = ''
-        } else {
-          entry.location = 'WFH'
-          entry.client = ''
-        }
         entry.notes = ''
       })
     }
@@ -723,13 +711,6 @@ function App() {
               type="button"
             >
               <span style={{ fontSize: '18px', marginRight: '6px' }}>🏠</span> All WFH
-            </button>
-            <button
-              className="preset-btn"
-              onClick={() => applyPreset('hybrid')}
-              type="button"
-            >
-              <span style={{ fontSize: '18px', marginRight: '6px' }}>🔄</span> Hybrid (3+2)
             </button>
           </div>
 
