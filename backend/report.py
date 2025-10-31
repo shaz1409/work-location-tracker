@@ -139,7 +139,11 @@ def send_email(
     if not recipients:
         raise ValueError("At least one recipient email address is required")
     
+    import logging
+    logger = logging.getLogger(__name__)
+    
     try:
+        logger.info(f"Creating email message. From: {from_email}, To: {recipients}")
         # Create message
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
@@ -150,14 +154,35 @@ def send_email(
         html_part = MIMEText(html_content, "html")
         msg.attach(html_part)
         
-        # Send email
-        with smtplib.SMTP(smtp_server, smtp_port) as server:
+        # Send email with timeout
+        logger.info(f"Connecting to SMTP server: {smtp_server}:{smtp_port}")
+        server = smtplib.SMTP(smtp_server, smtp_port, timeout=30)
+        logger.info("SMTP connection established, starting TLS...")
+        try:
             server.starttls()
+            logger.info("TLS started, attempting login...")
             server.login(smtp_user, smtp_password)
+            logger.info("Login successful, sending message...")
             server.send_message(msg)
-        
-        return True
+            logger.info("Message sent successfully")
+            return True
+        except smtplib.SMTPAuthenticationError as e:
+            logger.error(f"SMTP authentication failed: {str(e)}")
+            raise Exception(f"SMTP authentication failed. Check your SMTP_PASSWORD. Error: {str(e)}")
+        except smtplib.SMTPException as e:
+            logger.error(f"SMTP error: {str(e)}")
+            raise Exception(f"SMTP error: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error during SMTP send: {str(e)}")
+            raise
+        finally:
+            try:
+                server.quit()
+                logger.info("SMTP connection closed")
+            except:
+                pass
     except Exception as e:
+        logger.error(f"Failed to send email: {str(e)}")
         raise Exception(f"Failed to send email: {str(e)}")
 
 
