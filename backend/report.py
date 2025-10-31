@@ -133,8 +133,8 @@ def send_email(
     smtp_password = smtp_password or os.getenv("SMTP_PASSWORD")
     from_email = from_email or os.getenv("FROM_EMAIL", "shaz.ahmed@indigital.marketing")
     
-    if not smtp_user or not smtp_password:
-        raise ValueError("SMTP credentials must be provided via environment variables or parameters")
+    if not smtp_password:
+        raise ValueError(f"SMTP_PASSWORD environment variable not set. Current SMTP_USER: {smtp_user}")
     
     if not recipients:
         raise ValueError("At least one recipient email address is required")
