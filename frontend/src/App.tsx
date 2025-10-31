@@ -1013,6 +1013,43 @@ function App() {
                         </div>
                       )
                     })}
+
+                    {/* Show people who haven't entered */}
+                    {(() => {
+                      // Get all people who have entered for this date
+                      const enteredUsers = new Set(
+                        (groupedEntries[date] ? Object.values(groupedEntries[date]).flat() : []).map(e => e.user_name)
+                      )
+                      
+                      // Get people from team-members.json who haven't entered, sorted alphabetically
+                      const notEntered = allUsers
+                        .filter(user => !enteredUsers.has(user))
+                        .sort()
+                      
+                      if (notEntered.length === 0) return null
+                      
+                      return (
+                        <div className="location-group" style={{ marginTop: '16px' }}>
+                          <div className="location-group-title">
+                            <span className="location-badge" style={{ 
+                              background: '#444', 
+                              border: '2px solid #888',
+                              color: '#ccc'
+                            }}>
+                              Not Entered
+                            </span>
+                            <span className="location-people">
+                              {notEntered.map((name, index) => (
+                                <span key={`missing-${name}-${index}`} className="person-name-inline" style={{ color: '#999' }}>
+                                  {name}
+                                  {index < notEntered.length - 1 && ', '}
+                                </span>
+                              ))}
+                            </span>
+                          </div>
+                        </div>
+                      )
+                    })()}
                   </div>
                 ))}
             </>
