@@ -52,21 +52,6 @@ function normalizeLocationFromApi(location: string): WorkLocation {
   }
 }
 
-function normalizeLocationToApi(location: WorkLocation): string {
-  // Prefer legacy keys for maximum compatibility with older backends
-  switch (location) {
-    case 'Neal Street':
-      return 'Office'
-    case 'Client Office':
-      return 'Client'
-    case 'Holiday':
-      return 'Off'
-    case 'WFH':
-    default:
-      return location
-  }
-}
-
 function generateWeekEntries(weekStart: Date): WeekEntry[] {
   const entries: WeekEntry[] = []
   // Only generate Monday-Friday (5 days)
