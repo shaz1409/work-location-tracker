@@ -124,13 +124,13 @@ def send_email(
     Send email using SMTP.
     
     All parameters can come from environment variables if not provided.
-    Defaults to indigital.marketing Office 365 settings.
+    Defaults to SendGrid (recommended for cloud platforms).
     """
-    # Default to indigital.marketing Office 365 if not set
-    smtp_server = smtp_server or os.getenv("SMTP_SERVER", "smtp.office365.com")
+    # Default to SendGrid (more reliable from cloud platforms)
+    smtp_server = smtp_server or os.getenv("SMTP_SERVER", "smtp.sendgrid.net")
     smtp_port = smtp_port or int(os.getenv("SMTP_PORT", "587"))
-    smtp_user = smtp_user or os.getenv("SMTP_USER", "shaz.ahmed@indigital.marketing")
-    smtp_password = smtp_password or os.getenv("SMTP_PASSWORD")
+    smtp_user = smtp_user or os.getenv("SMTP_USER", "apikey")  # SendGrid uses "apikey" as username
+    smtp_password = smtp_password or os.getenv("SMTP_PASSWORD")  # SendGrid API key goes here
     from_email = from_email or os.getenv("FROM_EMAIL", "shaz.ahmed@indigital.marketing")
     
     if not smtp_password:
@@ -156,26 +156,12 @@ def send_email(
         
         # Send email with timeout
         logger.info(f"Connecting to SMTP server: {smtp_server}:{smtp_port}")
-        # Try port 465 with SSL first (more reliable for Office 365)
-        if smtp_port == 587:
-            try:
-                logger.info("Attempting connection with STARTTLS on port 587...")
-                server = smtplib.SMTP(smtp_server, smtp_port, timeout=10)
-            except Exception as e:
-                logger.warning(f"Port 587 failed: {str(e)}, trying port 465 with SSL...")
-                import ssl
-                server = smtplib.SMTP_SSL(smtp_server, 465, timeout=10)
-                smtp_port = 465  # Update for logging
-        else:
-            server = smtplib.SMTP(smtp_server, smtp_port, timeout=10)
+        server = smtplib.SMTP(smtp_server, smtp_port, timeout=10)
         logger.info("SMTP connection established")
         try:
-            # Only start TLS if not using SSL (port 465 uses SSL directly)
-            if smtp_port != 465:
-                logger.info("Starting TLS...")
-                server.starttls()
-                logger.info("TLS started")
-            logger.info("Attempting login...")
+            logger.info("Starting TLS...")
+            server.starttls()
+            logger.info("TLS started, attempting login...")
             server.login(smtp_user, smtp_password)
             logger.info("Login successful, sending message...")
             server.send_message(msg)

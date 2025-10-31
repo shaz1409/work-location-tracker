@@ -16,10 +16,45 @@ The system can automatically generate and email a weekly report showing:
 
 ### Step 1: Configure Email Settings
 
-In your **Render dashboard** → **API service** → **Environment Variables**, add:
+**Recommended: SendGrid (Free Tier: 100 emails/day)**
+
+SendGrid is the recommended option because:
+- ✅ Works reliably from cloud platforms (no firewall issues)
+- ✅ Free tier: 100 emails/day (perfect for weekly reports)
+- ✅ Easy setup
+
+**Setup SendGrid:**
+
+1. **Create a SendGrid account:**
+   - Go to https://sendgrid.com (free account)
+   - Sign up and verify your email
+
+2. **Create an API Key:**
+   - SendGrid Dashboard → Settings → API Keys
+   - Create API Key → "Restricted Access" → Give it "Mail Send" permission
+   - Copy the API key (you'll only see it once!)
+
+3. **Verify your sender email:**
+   - Settings → Sender Authentication
+   - Verify Single Sender (for testing) OR set up Domain Authentication (for production)
+   - Use the email you want to send from (e.g., `shaz.ahmed@indigital.marketing`)
+
+4. **Add to Render Environment Variables:**
+   ```
+   SMTP_SERVER=smtp.sendgrid.net
+   SMTP_PORT=587
+   SMTP_USER=apikey
+   SMTP_PASSWORD=your-sendgrid-api-key-here
+   FROM_EMAIL=shaz.ahmed@indigital.marketing
+   REPORT_EMAILS=shaz.ahmed@indigital.marketing
+   ```
+
+**Alternative: Gmail or Office 365**
+
+If you prefer to use your existing email:
 
 ```
-SMTP_SERVER=smtp.gmail.com
+SMTP_SERVER=smtp.gmail.com  # or smtp.office365.com
 SMTP_PORT=587
 SMTP_USER=your-email@gmail.com
 SMTP_PASSWORD=your-app-password
@@ -27,15 +62,9 @@ FROM_EMAIL=your-email@gmail.com
 REPORT_EMAILS=recipient1@company.com,recipient2@company.com
 ```
 
-**For Gmail:**
-1. Enable 2-Factor Authentication
-2. Generate an "App Password": https://myaccount.google.com/apppasswords
-3. Use that App Password (not your regular password)
+**For Gmail:** Enable 2FA → Generate App Password: https://myaccount.google.com/apppasswords
 
-**For Other Email Providers:**
-- **Outlook/Office 365**: `smtp.office365.com`, port `587`
-- **SendGrid**: `smtp.sendgrid.net`, port `587`, username `apikey`, password = your API key
-- **Custom SMTP**: Use your company's SMTP settings
+**For Office 365:** May require App Password if MFA enabled. Note: Some cloud platforms have connectivity issues with Office 365 SMTP.
 
 ### Step 2: Set Up Cron Job
 
@@ -135,16 +164,27 @@ The email includes:
 
 ## Example Environment Variables Summary
 
+**SendGrid (Recommended):**
 ```bash
-# Email Settings
-SMTP_SERVER=smtp.gmail.com
+SMTP_SERVER=smtp.sendgrid.net
 SMTP_PORT=587
-SMTP_USER=noreply@company.com
-SMTP_PASSWORD=your-app-password-here
-FROM_EMAIL=noreply@company.com
+SMTP_USER=apikey
+SMTP_PASSWORD=SG.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+FROM_EMAIL=shaz.ahmed@indigital.marketing
+REPORT_EMAILS=shaz.ahmed@indigital.marketing
 
-# Report Recipients (comma-separated)
-REPORT_EMAILS=manager1@company.com,manager2@company.com,hr@company.com
+# Database (auto-set by Render)
+DATABASE_URL=postgresql://...
+```
+
+**Gmail/Office 365 (Alternative):**
+```bash
+SMTP_SERVER=smtp.gmail.com  # or smtp.office365.com
+SMTP_PORT=587
+SMTP_USER=your-email@gmail.com
+SMTP_PASSWORD=your-app-password
+FROM_EMAIL=your-email@gmail.com
+REPORT_EMAILS=recipient1@company.com,recipient2@company.com
 
 # Database (auto-set by Render)
 DATABASE_URL=postgresql://...
