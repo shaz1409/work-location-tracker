@@ -156,11 +156,26 @@ def send_email(
         
         # Send email with timeout
         logger.info(f"Connecting to SMTP server: {smtp_server}:{smtp_port}")
-        server = smtplib.SMTP(smtp_server, smtp_port, timeout=30)
-        logger.info("SMTP connection established, starting TLS...")
+        # Try port 465 with SSL first (more reliable for Office 365)
+        if smtp_port == 587:
+            try:
+                logger.info("Attempting connection with STARTTLS on port 587...")
+                server = smtplib.SMTP(smtp_server, smtp_port, timeout=10)
+            except Exception as e:
+                logger.warning(f"Port 587 failed: {str(e)}, trying port 465 with SSL...")
+                import ssl
+                server = smtplib.SMTP_SSL(smtp_server, 465, timeout=10)
+                smtp_port = 465  # Update for logging
+        else:
+            server = smtplib.SMTP(smtp_server, smtp_port, timeout=10)
+        logger.info("SMTP connection established")
         try:
-            server.starttls()
-            logger.info("TLS started, attempting login...")
+            # Only start TLS if not using SSL (port 465 uses SSL directly)
+            if smtp_port != 465:
+                logger.info("Starting TLS...")
+                server.starttls()
+                logger.info("TLS started")
+            logger.info("Attempting login...")
             server.login(smtp_user, smtp_password)
             logger.info("Login successful, sending message...")
             server.send_message(msg)
