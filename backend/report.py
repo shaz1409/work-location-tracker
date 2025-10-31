@@ -124,13 +124,14 @@ def send_email(
     Send email using SMTP.
     
     All parameters can come from environment variables if not provided.
+    Defaults to indigital.marketing Office 365 settings.
     """
-    # Get from environment if not provided
-    smtp_server = smtp_server or os.getenv("SMTP_SERVER", "smtp.gmail.com")
+    # Default to indigital.marketing Office 365 if not set
+    smtp_server = smtp_server or os.getenv("SMTP_SERVER", "smtp.office365.com")
     smtp_port = smtp_port or int(os.getenv("SMTP_PORT", "587"))
-    smtp_user = smtp_user or os.getenv("SMTP_USER")
+    smtp_user = smtp_user or os.getenv("SMTP_USER", "shaz.ahmed@indigital.marketing")
     smtp_password = smtp_password or os.getenv("SMTP_PASSWORD")
-    from_email = from_email or os.getenv("FROM_EMAIL") or smtp_user
+    from_email = from_email or os.getenv("FROM_EMAIL", "shaz.ahmed@indigital.marketing")
     
     if not smtp_user or not smtp_password:
         raise ValueError("SMTP credentials must be provided via environment variables or parameters")
@@ -174,16 +175,13 @@ def generate_and_send_weekly_report(
     Returns:
         dict with success status and details
     """
-    # Get recipients from env if not provided
+    # Get recipients from env if not provided, default to shaz.ahmed@indigital.marketing
     if not recipients:
-        emails_str = os.getenv("REPORT_EMAILS", "")
+        emails_str = os.getenv("REPORT_EMAILS", "shaz.ahmed@indigital.marketing")
         recipients = [e.strip() for e in emails_str.split(",") if e.strip()]
     
     if not recipients:
-        return {
-            "success": False,
-            "error": "No email recipients configured. Set REPORT_EMAILS environment variable.",
-        }
+        recipients = ["shaz.ahmed@indigital.marketing"]  # Fallback default
     
     try:
         # Get previous week (Monday to Friday)
