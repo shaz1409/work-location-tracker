@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from sqlmodel import Session, delete, select
+from sqlmodel import Session, select
 
 from db import create_db_and_tables, get_session
 from models import Entry
@@ -26,6 +26,21 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Initialize database on startup."""
     create_db_and_tables()
+    
+    # Run migration if needed
+    try:
+        import sys
+        import os
+        migrations_path = os.path.join(os.path.dirname(__file__), 'migrations')
+        if os.path.exists(migrations_path):
+            from migrations.migrate_001_add_user_key_constraint import migrate as migrate_001
+            from db import engine
+            migrate_001(engine)
+    except ImportError as e:
+        logger.debug(f"Migration module not found (may not exist yet): {e}")
+    except Exception as e:
+        logger.warning(f"Migration check failed (may already be applied): {str(e)}")
+    
     logger.info("Database initialized")
     yield
 
@@ -47,67 +62,104 @@ app.add_middleware(
 def bulk_upsert_entries(
     request: BulkUpsertRequest, session: Session = Depends(get_session)
 ):
-    """Bulk upsert entries for a user, replacing existing entries in the date range."""
-    logger.info(f"Bulk upsert request for user: {request.user_name}")
+    """Bulk upsert entries for a user using atomic per-day upserts (no destructive deletes)."""
+    if not request.entries:
+        raise HTTPException(status_code=400, detail="No entries provided")
+    
+    # Normalize user identity once
+    user_key = request.user_name.strip().lower()
+    logger.info(f"Bulk upsert request for user_key: {user_key} (display: {request.user_name})")
 
     try:
-        # Get date range from entries
-        dates = [entry.date for entry in request.entries]
-        if not dates:
-            raise HTTPException(status_code=400, detail="No entries provided")
-
-        min_date = min(dates)
-        max_date = max(dates)
-
-        # Delete existing entries for this user in the date range (case-insensitive matching)
-        # Fetch all entries in date range and filter by case-insensitive name match
-        existing_entries = session.exec(
-            select(Entry)
-            .where(Entry.date >= min_date)
-            .where(Entry.date <= max_date)
-        ).all()
+        from sqlalchemy import text
+        from datetime import UTC, datetime
         
-        # Delete entries where user_name matches case-insensitively
-        entries_to_delete = [
-            e.id for e in existing_entries 
-            if e.user_name.lower() == request.user_name.lower()
-        ]
+        # Use single transaction for atomicity
+        count = 0
         
-        if entries_to_delete:
-            logger.info(f"Deleting {len(entries_to_delete)} existing entries for {request.user_name}")
-            delete_ids_stmt = delete(Entry).where(Entry.id.in_(entries_to_delete))
-            session.exec(delete_ids_stmt)
-            session.commit()  # Commit deletions first
-
-        # Insert new entries
-        new_entries = []
+        # Check if PostgreSQL (for ON CONFLICT) or SQLite (use merge pattern)
+        is_postgres = False
+        try:
+            if hasattr(session.bind, 'url'):
+                is_postgres = "postgresql" in str(session.bind.url).lower()
+            else:
+                # Fallback: check engine URL
+                from db import engine
+                is_postgres = "postgresql" in str(engine.url).lower()
+        except Exception:
+            pass  # Default to SQLite pattern
+        
         for entry_data in request.entries:
-            entry = Entry(
-                user_name=request.user_name,
-                date=entry_data.date,
-                location=entry_data.location,
-                client=entry_data.client,
-                notes=entry_data.notes,
-            )
-            new_entries.append(entry)
-
-        logger.info(f"Adding {len(new_entries)} new entries for {request.user_name}")
-        session.add_all(new_entries)
+            # Validate entry
+            if not entry_data.date:
+                continue
+                
+            # Use current timestamp for created_at/updated_at
+            now = datetime.now(UTC)
+            
+            if is_postgres:
+                # PostgreSQL: Use INSERT ... ON CONFLICT DO UPDATE
+                result = session.execute(
+                    text("""
+                        INSERT INTO entry (user_key, user_name, date, location, client, notes, created_at, updated_at)
+                        VALUES (:user_key, :user_name, :date, :location, :client, :notes, :created_at, :updated_at)
+                        ON CONFLICT (user_key, date) DO UPDATE
+                        SET user_name = EXCLUDED.user_name,
+                            location = EXCLUDED.location,
+                            client = EXCLUDED.client,
+                            notes = EXCLUDED.notes,
+                            updated_at = EXCLUDED.updated_at
+                    """),
+                    {
+                        "user_key": user_key,
+                        "user_name": request.user_name.strip(),
+                        "date": entry_data.date,
+                        "location": entry_data.location,
+                        "client": entry_data.client,
+                        "notes": entry_data.notes,
+                        "created_at": now,
+                        "updated_at": now,
+                    }
+                )
+                count += result.rowcount if result.rowcount else 1
+            else:
+                # SQLite: Use ORM merge pattern (select, update or insert)
+                existing = session.exec(
+                    select(Entry)
+                    .where(Entry.user_key == user_key)
+                    .where(Entry.date == entry_data.date)
+                ).first()
+                
+                if existing:
+                    # Update existing
+                    existing.user_name = request.user_name.strip()
+                    existing.location = entry_data.location
+                    existing.client = entry_data.client
+                    existing.notes = entry_data.notes
+                    existing.updated_at = now
+                else:
+                    # Insert new
+                    new_entry = Entry(
+                        user_key=user_key,
+                        user_name=request.user_name.strip(),
+                        date=entry_data.date,
+                        location=entry_data.location,
+                        client=entry_data.client,
+                        notes=entry_data.notes,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                    session.add(new_entry)
+                count += 1
+        
+        # Single commit for all operations (atomic)
         session.commit()
         
-        # Verify the entries were actually saved
-        verify_count = session.exec(
-            select(Entry)
-            .where(Entry.user_name.ilike(request.user_name))
-            .where(Entry.date >= min_date)
-            .where(Entry.date <= max_date)
-        ).all()
-        
         logger.info(
-            f"Successfully upserted {len(new_entries)} entries for {request.user_name}. "
-            f"Verification: {len(verify_count)} entries found in database."
+            f"Successfully upserted {count} entries for user_key: {user_key} "
+            f"(display: {request.user_name})"
         )
-        return BulkUpsertResponse(ok=True, count=len(new_entries))
+        return BulkUpsertResponse(ok=True, count=count)
 
     except Exception as e:
         session.rollback()
@@ -195,6 +247,7 @@ def get_entries(
                 client=entry.client,
                 notes=entry.notes,
                 created_at=entry.created_at,
+                updated_at=entry.updated_at,
             )
             for entry in entries
         ]
@@ -239,11 +292,24 @@ def get_all_users(
 
     try:
         # Query all entries to get unique user names
-        stmt = select(Entry)
-        entries = session.exec(stmt).all()
+        # Use DISTINCT on user_key to get unique users, then get latest user_name for each
+        entries = session.exec(select(Entry)).all()
 
-        # Get unique user names (preserve case but sort alphabetically)
-        users = sorted(list(set([entry.user_name for entry in entries])))
+        # Group by user_key and get latest user_name (preserve display name with latest casing)
+        user_map = {}
+        for entry in entries:
+            if entry.user_key not in user_map:
+                user_map[entry.user_key] = entry.user_name
+            # Prefer more recent user_name (if updated_at exists)
+            elif entry.updated_at and (
+                not user_map.get(entry.user_key) or 
+                (isinstance(entry.updated_at, datetime) and 
+                 user_map.get(entry.user_key + "_ts", datetime.min) < entry.updated_at)
+            ):
+                user_map[entry.user_key] = entry.user_name
+        
+        # Return unique user names sorted alphabetically
+        users = sorted(list(set(user_map.values())))
 
         logger.info(f"Found {len(users)} total users")
         return {"users": users}
@@ -277,9 +343,21 @@ def get_users_for_week(
 
         entries = session.exec(stmt).all()
 
-        # Get unique user names (case-insensitive)
-        users = list(set([entry.user_name for entry in entries]))
-        users.sort()
+        # Get unique user names grouped by user_key (normalized)
+        user_map = {}
+        for entry in entries:
+            if entry.user_key not in user_map:
+                user_map[entry.user_key] = entry.user_name
+                if entry.updated_at:
+                    user_map[entry.user_key + "_ts"] = entry.updated_at
+            # Prefer latest user_name if updated_at is more recent
+            elif entry.updated_at:
+                existing_ts = user_map.get(entry.user_key + "_ts")
+                if not existing_ts or entry.updated_at > existing_ts:
+                    user_map[entry.user_key] = entry.user_name
+                    user_map[entry.user_key + "_ts"] = entry.updated_at
+        
+        users = sorted(list(set(user_map.values())))
 
         logger.info(f"Found {len(users)} users for week {week_start}")
         return {"users": users}
@@ -300,7 +378,7 @@ def check_existing_entries(
     week_start: str = Query(..., description="Week start date in YYYY-MM-DD format"),
     session: Session = Depends(get_session),
 ):
-    """Check if a user already has entries for a given week (case-insensitive)."""
+    """Check if a user already has entries for a given week (uses normalized user_key)."""
     logger.info(f"Check entries request for user: {user_name}, week: {week_start}")
     
     try:
@@ -308,18 +386,16 @@ def check_existing_entries(
         start_date = datetime.strptime(week_start, "%Y-%m-%d").date()
         end_date = start_date + timedelta(days=4)
         
-        # Get all entries in the week
-        entries = session.exec(
+        # Normalize user name to user_key
+        user_key = user_name.strip().lower()
+        
+        # Query using user_key (normalized, unique identifier)
+        user_entries = session.exec(
             select(Entry)
+            .where(Entry.user_key == user_key)
             .where(Entry.date >= week_start)
             .where(Entry.date <= end_date.strftime("%Y-%m-%d"))
         ).all()
-        
-        # Filter for case-insensitive name match
-        user_entries = [
-            e for e in entries 
-            if e.user_name.lower() == user_name.lower()
-        ]
         
         return {
             "exists": len(user_entries) > 0,

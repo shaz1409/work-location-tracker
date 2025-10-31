@@ -44,6 +44,8 @@ function normalizeLocationFromApi(location: string): WorkLocation {
     case 'Neal Street':
     case 'Client Office':
     case 'Holiday':
+    case 'Working From Abroad':
+    case 'Other':
       return location as WorkLocation
     default:
       return location as WorkLocation
@@ -127,8 +129,12 @@ function getLocationBadgeClass(location: string): string {
       return 'location-wfh'
     case 'client office':
       return 'location-client'
+    case 'working from abroad':
+      return 'location-abroad'
     case 'holiday':
       return 'location-off'
+    case 'other':
+      return 'location-other'
     default:
       return ''
   }
@@ -258,12 +264,21 @@ function App() {
       const updatedEntries = weekEntries.map(entry => {
         const existing = entriesMap.get(entry.date)
         if (existing) {
+          const normalizedLocation = normalizeLocationFromApi(existing.location) as WorkLocation
+          // Determine if custom input needed
+          let isCustomClient = false
+          if (normalizedLocation === 'Client Office') {
+            isCustomClient = !clientOptions.includes(existing.client || '')
+          } else if (normalizedLocation === 'Other') {
+            isCustomClient = true // Always custom for "Other"
+          }
+          
           return {
             ...entry,
-            location: normalizeLocationFromApi(existing.location) as WorkLocation,
+            location: normalizedLocation,
             client: existing.client || '',
             notes: existing.notes || '',
-            isCustomClient: !clientOptions.includes(existing.client || '')
+            isCustomClient: isCustomClient
           }
         }
         return entry
@@ -339,9 +354,15 @@ function App() {
   const handleLocationChange = (index: number, location: WorkLocation) => {
     const newEntries = [...weekEntries]
     newEntries[index].location = location
-    if (location !== 'Client Office') {
+    if (location !== 'Client Office' && location !== 'Other') {
       newEntries[index].client = ''
       newEntries[index].isCustomClient = false
+    } else if (location === 'Other') {
+      // For "Other", always show custom input
+      newEntries[index].isCustomClient = true
+      if (!newEntries[index].client) {
+        newEntries[index].client = ''
+      }
     }
     setWeekEntries(newEntries)
   }
@@ -407,6 +428,11 @@ function App() {
           return `Client name is required for ${entry.dayName}`
         }
       }
+      if (entry.location === 'Other') {
+        if (!entry.client.trim()) {
+          return `Please enter a location description for ${entry.dayName}`
+        }
+      }
     }
 
     return null
@@ -446,8 +472,10 @@ function App() {
         user_name: userName.trim(),
         entries: weekEntries.map((entry) => ({
           date: entry.date,
-          location: normalizeLocationToApi(entry.location),
-          client: entry.client.trim() || undefined,
+          location: entry.location, // Send new location names directly (backend accepts them)
+          client: (entry.location === 'Client Office' || entry.location === 'Other') && entry.client.trim() 
+            ? entry.client.trim() 
+            : undefined,
           notes: entry.notes.trim() || undefined,
         })),
       }
@@ -515,7 +543,7 @@ function App() {
   const groupedEntries = groupEntriesByDateAndLocation(summaryEntries)
 
   // Define location order for consistent display
-  const locationOrder = ['Neal Street', 'WFH', 'Client Office', 'Holiday']
+  const locationOrder = ['Neal Street', 'WFH', 'Client Office', 'Working From Abroad', 'Holiday', 'Other']
 
   const dateInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -808,7 +836,9 @@ function App() {
                       <option value="Neal Street">Neal Street</option>
                       <option value="WFH">WFH</option>
                       <option value="Client Office">Client Office</option>
+                      <option value="Working From Abroad">Working From Abroad</option>
                       <option value="Holiday">Holiday</option>
+                      <option value="Other">Other</option>
                     </select>
                   </td>
                   <td>
@@ -853,6 +883,17 @@ function App() {
                           </select>
                         </div>
                       )
+                    ) : entry.location === 'Other' ? (
+                      <input
+                        className="client-input"
+                        type="text"
+                        value={entry.client}
+                        onChange={(e) =>
+                          handleClientChange(index, e.target.value)
+                        }
+                        placeholder="Enter location description"
+                        style={{ marginTop: '4px' }}
+                      />
                     ) : (
                       <span style={{ color: '#666', fontStyle: 'italic' }}>N/A</span>
                     )}
@@ -920,16 +961,16 @@ function App() {
                       const entriesForLocation = groupedEntries[date][location] || []
                       if (entriesForLocation.length === 0) return null
 
-                      // If location is Client Office, group by client
-                      if (location === 'Client Office') {
-                        const entriesByClient = entriesForLocation.reduce((acc, entry) => {
-                          const client = entry.client || 'No Client'
-                          if (!acc[client]) {
-                            acc[client] = []
+                      // If location is Client Office or Other, group by client/description
+                      if (location === 'Client Office' || location === 'Other') {
+                        const entriesByDescription = entriesForLocation.reduce((acc, entry) => {
+                          const description = entry.client || (location === 'Other' ? 'No description' : 'No Client')
+                          if (!acc[description]) {
+                            acc[description] = []
                           }
-                          acc[client].push(entry)
+                          acc[description].push(entry)
                           return acc
-                        }, {} as { [client: string]: SummaryRow[] })
+                        }, {} as { [description: string]: SummaryRow[] })
 
                         return (
                           <div key={location} className="location-group">
@@ -938,20 +979,25 @@ function App() {
                                 {location}
                               </span>
                             </div>
-                            {Object.keys(entriesByClient).sort().map((client) => {
-                              const isCustomClient = !clientOptions.includes(client)
-                              const clientHeading = isCustomClient ? `Other (${client})` : client
+                            {Object.keys(entriesByDescription).sort().map((description) => {
+                              // For Client Office, check if it's a custom client
+                              const isCustomClient = location === 'Client Office' && !clientOptions.includes(description)
+                              const heading = location === 'Other' 
+                                ? description 
+                                : isCustomClient 
+                                  ? `Other (${description})` 
+                                  : description
                               
                               return (
-                                <div key={client} style={{ marginTop: '10px', paddingLeft: '20px' }}>
+                                <div key={description} style={{ marginTop: '10px', paddingLeft: '20px' }}>
                                   <div style={{ fontSize: '14px', fontWeight: '700', marginBottom: '5px', color: '#ffff00' }}>
-                                    📊 {clientHeading}
+                                    📊 {heading}
                                   </div>
                                   <div className="location-people">
-                                    {entriesByClient[client].map((entry, index) => (
+                                    {entriesByDescription[description].map((entry, index) => (
                                       <span key={`${entry.user_name}-${index}`} className="person-name-inline">
                                         {entry.user_name}
-                                        {index < entriesByClient[client].length - 1 && ', '}
+                                        {index < entriesByDescription[description].length - 1 && ', '}
                                       </span>
                                     ))}
                                   </div>
@@ -973,7 +1019,7 @@ function App() {
                               {entriesForLocation.map((entry, index) => (
                                 <span key={`${entry.user_name}-${index}`} className="person-name-inline">
                                   {entry.user_name}
-                                  {entry.client && ` (${entry.client})`}
+                                  {(entry.client && (location === 'Client Office' || location === 'Other')) && ` (${entry.client})`}
                                   {index < entriesForLocation.length - 1 && ', '}
                                 </span>
                               ))}

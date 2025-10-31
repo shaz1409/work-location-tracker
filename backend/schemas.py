@@ -21,7 +21,7 @@ class EntryCreate(BaseModel):
             "PTO": "Holiday",
         }
         normalized = legacy_map.get(v, v)
-        valid_locations = {"Neal Street", "WFH", "Client Office", "Holiday"}
+        valid_locations = {"Neal Street", "WFH", "Client Office", "Holiday", "Working From Abroad", "Other"}
         if normalized not in valid_locations:
             raise ValueError(f"Location must be one of: {valid_locations}")
         return normalized
@@ -30,6 +30,8 @@ class EntryCreate(BaseModel):
     def validate_client(self):
         if self.location in {"Client Office", "Client"} and not self.client:
             raise ValueError("Client name is required when location is 'Client Office'")
+        if self.location == "Other" and not self.client:
+            raise ValueError("Location description is required when location is 'Other'")
         return self
 
 
@@ -63,3 +65,4 @@ class EntryResponse(SQLModel):
     client: str | None = None
     notes: str | None = None
     created_at: datetime
+    updated_at: datetime | None = None

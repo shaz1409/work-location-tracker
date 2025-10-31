@@ -14,7 +14,10 @@ def test_session():
     with Session(engine) as session:
         yield session
         # Clean up all test data after test
-        session.exec(delete(Entry))
+        from sqlmodel import select
+        all_entries = session.exec(select(Entry)).all()
+        for entry in all_entries:
+            session.delete(entry)
         session.commit()
 
 

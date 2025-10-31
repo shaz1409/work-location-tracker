@@ -50,6 +50,7 @@ Thumbs.db
 *.db
 *.sqlite
 *.sqlite3
+worktracker.db
 
 # Node.js
 node_modules/
