@@ -74,8 +74,10 @@ def bulk_upsert_entries(
         ]
         
         if entries_to_delete:
+            logger.info(f"Deleting {len(entries_to_delete)} existing entries for {request.user_name}")
             delete_ids_stmt = delete(Entry).where(Entry.id.in_(entries_to_delete))
             session.exec(delete_ids_stmt)
+            session.commit()  # Commit deletions first
 
         # Insert new entries
         new_entries = []
@@ -89,11 +91,21 @@ def bulk_upsert_entries(
             )
             new_entries.append(entry)
 
+        logger.info(f"Adding {len(new_entries)} new entries for {request.user_name}")
         session.add_all(new_entries)
         session.commit()
-
+        
+        # Verify the entries were actually saved
+        verify_count = session.exec(
+            select(Entry)
+            .where(Entry.user_name.ilike(request.user_name))
+            .where(Entry.date >= min_date)
+            .where(Entry.date <= max_date)
+        ).all()
+        
         logger.info(
-            f"Successfully upserted {len(new_entries)} entries for {request.user_name}"
+            f"Successfully upserted {len(new_entries)} entries for {request.user_name}. "
+            f"Verification: {len(verify_count)} entries found in database."
         )
         return BulkUpsertResponse(ok=True, count=len(new_entries))
 
@@ -422,6 +434,74 @@ def send_weekly_report(
     except Exception as e:
         logger.error(f"Error sending weekly report: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/admin/debug")
+def debug_database(session: Session = Depends(get_session)):
+    """Debug endpoint to check database contents and connection."""
+    try:
+        # Check database type and connection
+        from db import DATABASE_URL, engine
+        db_type = "PostgreSQL" if "postgresql://" in DATABASE_URL or "postgres://" in DATABASE_URL else "SQLite"
+        
+        # Try to get database name/info (sanitized for security)
+        db_info = "unknown"
+        if "@" in DATABASE_URL:
+            # Show only the host part, not credentials
+            db_info = DATABASE_URL.split("@")[-1].split("?")[0]
+        elif "sqlite" in DATABASE_URL:
+            db_info = DATABASE_URL.split("/")[-1]
+        
+        # Get total entry count
+        all_entries = session.exec(select(Entry)).all()
+        total_count = len(all_entries)
+        
+        # Get sample entries (last 10)
+        recent_entries = all_entries[-10:] if all_entries else []
+        
+        # Get unique users
+        users = sorted(list(set([e.user_name for e in all_entries])))
+        
+        # Get date range
+        dates = [e.date for e in all_entries] if all_entries else []
+        min_date = min(dates) if dates else None
+        max_date = max(dates) if dates else None
+        
+        # Test if we can write (just verify connection works)
+        connection_ok = True
+        try:
+            # Just verify the connection
+            from sqlalchemy import text
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+        except Exception as conn_e:
+            connection_ok = False
+            logger.error(f"Connection test failed: {str(conn_e)}")
+        
+        return {
+            "database_type": db_type,
+            "database_info": db_info,
+            "connection_ok": connection_ok,
+            "total_entries": total_count,
+            "unique_users": users,
+            "date_range": {
+                "earliest": min_date,
+                "latest": max_date
+            },
+            "sample_entries": [
+                {
+                    "id": e.id,
+                    "user_name": e.user_name,
+                    "date": e.date,
+                    "location": e.location,
+                    "client": e.client,
+                }
+                for e in recent_entries
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Debug error: {str(e)}")
+        return {"error": str(e), "traceback": str(e.__class__.__name__)}
 
 
 @app.get("/")
