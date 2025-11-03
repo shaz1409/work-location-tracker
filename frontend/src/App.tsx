@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { WeekEntry, WorkLocation, SummaryRow } from './types'
+import { WeekEntry, WorkLocation, SummaryRow, Entry, ExistingEntry } from './types'
 import { saveWeek, getWeekSummary, checkExistingEntries, getUserEntriesForWeek, getUsersForWeek, getAllUsers } from './api'
 // Load team and client lists from public at runtime (no imports from root)
 
@@ -52,20 +52,31 @@ function normalizeLocationFromApi(location: string): WorkLocation {
   }
 }
 
-function generateWeekEntries(weekStart: Date): WeekEntry[] {
+function generateWeekEntries(weekStart: Date, isSplit: boolean = false): WeekEntry[] {
   const entries: WeekEntry[] = []
   // Only generate Monday-Friday (5 days)
   for (let i = 0; i < 5; i++) {
     const date = new Date(weekStart)
     date.setDate(weekStart.getDate() + i)
-      entries.push({
-        date: formatDate(date),
-        dayName: getDayName(date),
-        location: 'Neal Street' as WorkLocation,
-        client: '',
-        notes: '',
-        isCustomClient: false,
-      })
+    const baseEntry: WeekEntry = {
+      date: formatDate(date),
+      dayName: getDayName(date),
+      location: 'Neal Street' as WorkLocation,
+      client: '',
+      notes: '',
+      isCustomClient: false,
+    }
+    if (isSplit) {
+      baseEntry.morningLocation = 'Neal Street' as WorkLocation
+      baseEntry.afternoonLocation = 'Neal Street' as WorkLocation
+      baseEntry.morningClient = ''
+      baseEntry.afternoonClient = ''
+      baseEntry.morningNotes = ''
+      baseEntry.afternoonNotes = ''
+      baseEntry.morningIsCustomClient = false
+      baseEntry.afternoonIsCustomClient = false
+    }
+    entries.push(baseEntry)
   }
   return entries
 }
@@ -80,10 +91,14 @@ function groupEntriesByDateAndLocation(entries: SummaryRow[]): {
       if (!groups[entry.date]) {
         groups[entry.date] = {}
       }
-      if (!groups[entry.date][entry.location]) {
-        groups[entry.date][entry.location] = []
+      // Create location key with time period if present
+      const locationKey = entry.time_period 
+        ? `${entry.location} (${entry.time_period})`
+        : entry.location
+      if (!groups[entry.date][locationKey]) {
+        groups[entry.date][locationKey] = []
       }
-      groups[entry.date][entry.location].push(entry)
+      groups[entry.date][locationKey].push(entry)
       return groups
     },
     {} as { [date: string]: { [location: string]: SummaryRow[] } }
@@ -144,6 +159,9 @@ function App() {
   const [userSearchTerm, setUserSearchTerm] = useState('')
   const [editSearchTerm, setEditSearchTerm] = useState('')
   
+  // Split working mode (morning/afternoon)
+  const [isSplitMode, setIsSplitMode] = useState(false)
+  
   // Overwrite confirmation + undo
   const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false)
   const [isOverwriteConfirmed, setIsOverwriteConfirmed] = useState(false)
@@ -161,10 +179,10 @@ function App() {
     }
   }, [userName])
 
-  // Initialize week entries when week start changes
+  // Initialize week entries when week start changes or split mode changes
   useEffect(() => {
-    setWeekEntries(generateWeekEntries(weekStart))
-  }, [weekStart])
+    setWeekEntries(generateWeekEntries(weekStart, isSplitMode))
+  }, [weekStart, isSplitMode])
 
   // Load client and team lists from public at runtime
   useEffect(() => {
@@ -242,30 +260,87 @@ function App() {
       setLoading(true)
       const existingEntries = await getUserEntriesForWeek(user, week)
       
-      // Create a map of existing entries by date
-      const entriesMap = new Map(existingEntries.map(entry => [entry.date, entry]))
+      // Group entries by date and time_period
+      const entriesByDate = new Map<string, { morning?: ExistingEntry, afternoon?: ExistingEntry, full?: ExistingEntry }>()
+      
+      for (const entry of existingEntries) {
+        const date = entry.date
+        if (!entriesByDate.has(date)) {
+          entriesByDate.set(date, {})
+        }
+        const dayEntries = entriesByDate.get(date)!
+        if (entry.time_period === 'Morning') {
+          dayEntries.morning = entry
+        } else if (entry.time_period === 'Afternoon') {
+          dayEntries.afternoon = entry
+        } else {
+          dayEntries.full = entry
+        }
+      }
       
       // Update week entries with existing data
       const updatedEntries = weekEntries.map(entry => {
-        const existing = entriesMap.get(entry.date)
-        if (existing) {
-          const normalizedLocation = normalizeLocationFromApi(existing.location) as WorkLocation
-          // Determine if custom input needed
+        const dayEntries = entriesByDate.get(entry.date)
+        if (!dayEntries) return entry
+        
+        // If we have full day entry and not in split mode, use it
+        if (dayEntries.full && !isSplitMode) {
+          const normalizedLocation = normalizeLocationFromApi(dayEntries.full.location) as WorkLocation
           let isCustomClient = false
           if (normalizedLocation === 'Client Office') {
-            isCustomClient = !clientOptions.includes(existing.client || '')
+            isCustomClient = !clientOptions.includes(dayEntries.full.client || '')
           } else if (normalizedLocation === 'Other') {
-            isCustomClient = true // Always custom for "Other"
+            isCustomClient = true
           }
-          
           return {
             ...entry,
             location: normalizedLocation,
-            client: existing.client || '',
-            notes: existing.notes || '',
+            client: dayEntries.full.client || '',
+            notes: dayEntries.full.notes || '',
             isCustomClient: isCustomClient
           }
         }
+        
+        // If in split mode or we have morning/afternoon entries
+        if (isSplitMode || dayEntries.morning || dayEntries.afternoon) {
+          const result = { ...entry }
+          
+          if (dayEntries.morning) {
+            const normalizedLocation = normalizeLocationFromApi(dayEntries.morning.location) as WorkLocation
+            result.morningLocation = normalizedLocation
+            result.morningClient = dayEntries.morning.client || ''
+            result.morningNotes = dayEntries.morning.notes || ''
+            if (normalizedLocation === 'Client Office') {
+              result.morningIsCustomClient = !clientOptions.includes(dayEntries.morning.client || '')
+            } else if (normalizedLocation === 'Other') {
+              result.morningIsCustomClient = true
+            } else {
+              result.morningIsCustomClient = false
+            }
+          }
+          
+          if (dayEntries.afternoon) {
+            const normalizedLocation = normalizeLocationFromApi(dayEntries.afternoon.location) as WorkLocation
+            result.afternoonLocation = normalizedLocation
+            result.afternoonClient = dayEntries.afternoon.client || ''
+            result.afternoonNotes = dayEntries.afternoon.notes || ''
+            if (normalizedLocation === 'Client Office') {
+              result.afternoonIsCustomClient = !clientOptions.includes(dayEntries.afternoon.client || '')
+            } else if (normalizedLocation === 'Other') {
+              result.afternoonIsCustomClient = true
+            } else {
+              result.afternoonIsCustomClient = false
+            }
+          }
+          
+          // If we have split entries but weren't in split mode, enable it
+          if (!isSplitMode && (dayEntries.morning || dayEntries.afternoon)) {
+            setIsSplitMode(true)
+          }
+          
+          return result
+        }
+        
         return entry
       })
       
@@ -336,43 +411,105 @@ function App() {
     }
   }
 
-  const handleLocationChange = (index: number, location: WorkLocation) => {
+  const handleLocationChange = (index: number, location: WorkLocation, period?: 'morning' | 'afternoon') => {
     const newEntries = [...weekEntries]
-    newEntries[index].location = location
-    if (location !== 'Client Office' && location !== 'Other') {
-      newEntries[index].client = ''
-      newEntries[index].isCustomClient = false
-    } else if (location === 'Other') {
-      // For "Other", always show custom input
-      newEntries[index].isCustomClient = true
-      if (!newEntries[index].client) {
+    if (isSplitMode && period) {
+      if (period === 'morning') {
+        newEntries[index].morningLocation = location
+        if (location !== 'Client Office' && location !== 'Other') {
+          newEntries[index].morningClient = ''
+          newEntries[index].morningIsCustomClient = false
+        } else if (location === 'Other') {
+          newEntries[index].morningIsCustomClient = true
+          if (!newEntries[index].morningClient) {
+            newEntries[index].morningClient = ''
+          }
+        }
+      } else {
+        newEntries[index].afternoonLocation = location
+        if (location !== 'Client Office' && location !== 'Other') {
+          newEntries[index].afternoonClient = ''
+          newEntries[index].afternoonIsCustomClient = false
+        } else if (location === 'Other') {
+          newEntries[index].afternoonIsCustomClient = true
+          if (!newEntries[index].afternoonClient) {
+            newEntries[index].afternoonClient = ''
+          }
+        }
+      }
+    } else {
+      newEntries[index].location = location
+      if (location !== 'Client Office' && location !== 'Other') {
         newEntries[index].client = ''
+        newEntries[index].isCustomClient = false
+      } else if (location === 'Other') {
+        // For "Other", always show custom input
+        newEntries[index].isCustomClient = true
+        if (!newEntries[index].client) {
+          newEntries[index].client = ''
+        }
       }
     }
     setWeekEntries(newEntries)
   }
 
-  const handleClientChange = (index: number, client: string) => {
+  const handleClientChange = (index: number, client: string, period?: 'morning' | 'afternoon') => {
     const newEntries = [...weekEntries]
-    newEntries[index].client = client
-    setWeekEntries(newEntries)
-  }
-
-  const handleClientTypeChange = (index: number, clientType: string) => {
-    const newEntries = [...weekEntries]
-    if (clientType === 'Other') {
-      newEntries[index].isCustomClient = true
-      newEntries[index].client = ''
+    if (isSplitMode && period) {
+      if (period === 'morning') {
+        newEntries[index].morningClient = client
+      } else {
+        newEntries[index].afternoonClient = client
+      }
     } else {
-      newEntries[index].isCustomClient = false
-      newEntries[index].client = clientType
+      newEntries[index].client = client
     }
     setWeekEntries(newEntries)
   }
 
-  const handleNotesChange = (index: number, notes: string) => {
+  const handleClientTypeChange = (index: number, clientType: string, period?: 'morning' | 'afternoon') => {
     const newEntries = [...weekEntries]
-    newEntries[index].notes = notes
+    if (isSplitMode && period) {
+      if (period === 'morning') {
+        if (clientType === 'Other') {
+          newEntries[index].morningIsCustomClient = true
+          newEntries[index].morningClient = ''
+        } else {
+          newEntries[index].morningIsCustomClient = false
+          newEntries[index].morningClient = clientType
+        }
+      } else {
+        if (clientType === 'Other') {
+          newEntries[index].afternoonIsCustomClient = true
+          newEntries[index].afternoonClient = ''
+        } else {
+          newEntries[index].afternoonIsCustomClient = false
+          newEntries[index].afternoonClient = clientType
+        }
+      }
+    } else {
+      if (clientType === 'Other') {
+        newEntries[index].isCustomClient = true
+        newEntries[index].client = ''
+      } else {
+        newEntries[index].isCustomClient = false
+        newEntries[index].client = clientType
+      }
+    }
+    setWeekEntries(newEntries)
+  }
+
+  const handleNotesChange = (index: number, notes: string, period?: 'morning' | 'afternoon') => {
+    const newEntries = [...weekEntries]
+    if (isSplitMode && period) {
+      if (period === 'morning') {
+        newEntries[index].morningNotes = notes
+      } else {
+        newEntries[index].afternoonNotes = notes
+      }
+    } else {
+      newEntries[index].notes = notes
+    }
     setWeekEntries(newEntries)
   }
 
@@ -403,19 +540,56 @@ function App() {
       return 'Please enter your name'
     }
 
-    for (const entry of weekEntries) {
-      if (entry.location === 'Client Office') {
-        // If "Other" was selected, isCustomClient=true and client must be non-empty
-        if (entry.isCustomClient && !entry.client.trim()) {
-          return `Please enter a client name for ${entry.dayName}`
+    if (isSplitMode) {
+      for (const entry of weekEntries) {
+        // Validate morning entry if location is set
+        if (entry.morningLocation) {
+          if (entry.morningLocation === 'Client Office') {
+            if (entry.morningIsCustomClient && !entry.morningClient?.trim()) {
+              return `Please enter a client name for ${entry.dayName} (Morning)`
+            }
+            if (!entry.morningIsCustomClient && !entry.morningClient?.trim()) {
+              return `Client name is required for ${entry.dayName} (Morning)`
+            }
+          }
+          if (entry.morningLocation === 'Other') {
+            if (!entry.morningClient?.trim()) {
+              return `Please enter a location description for ${entry.dayName} (Morning)`
+            }
+          }
         }
-        if (!entry.isCustomClient && !entry.client.trim()) {
-          return `Client name is required for ${entry.dayName}`
+        // Validate afternoon entry if location is set
+        if (entry.afternoonLocation) {
+          if (entry.afternoonLocation === 'Client Office') {
+            if (entry.afternoonIsCustomClient && !entry.afternoonClient?.trim()) {
+              return `Please enter a client name for ${entry.dayName} (Afternoon)`
+            }
+            if (!entry.afternoonIsCustomClient && !entry.afternoonClient?.trim()) {
+              return `Client name is required for ${entry.dayName} (Afternoon)`
+            }
+          }
+          if (entry.afternoonLocation === 'Other') {
+            if (!entry.afternoonClient?.trim()) {
+              return `Please enter a location description for ${entry.dayName} (Afternoon)`
+            }
+          }
         }
       }
-      if (entry.location === 'Other') {
-        if (!entry.client.trim()) {
-          return `Please enter a location description for ${entry.dayName}`
+    } else {
+      for (const entry of weekEntries) {
+        if (entry.location === 'Client Office') {
+          // If "Other" was selected, isCustomClient=true and client must be non-empty
+          if (entry.isCustomClient && !entry.client.trim()) {
+            return `Please enter a client name for ${entry.dayName}`
+          }
+          if (!entry.isCustomClient && !entry.client.trim()) {
+            return `Client name is required for ${entry.dayName}`
+          }
+        }
+        if (entry.location === 'Other') {
+          if (!entry.client.trim()) {
+            return `Please enter a location description for ${entry.dayName}`
+          }
         }
       }
     }
@@ -453,16 +627,52 @@ function App() {
         }
       }
 
+      // Build entries array - either split or full day entries
+      const entries: Entry[] = []
+      
+      for (const entry of weekEntries) {
+        if (isSplitMode && (entry.morningLocation || entry.afternoonLocation)) {
+          // Add morning entry if location is set
+          if (entry.morningLocation) {
+            entries.push({
+              date: entry.date,
+              location: entry.morningLocation,
+              time_period: 'Morning',
+              client: (entry.morningLocation === 'Client Office' || entry.morningLocation === 'Other') && entry.morningClient?.trim()
+                ? entry.morningClient.trim()
+                : undefined,
+              notes: entry.morningNotes?.trim() || undefined,
+            })
+          }
+          // Add afternoon entry if location is set
+          if (entry.afternoonLocation) {
+            entries.push({
+              date: entry.date,
+              location: entry.afternoonLocation,
+              time_period: 'Afternoon',
+              client: (entry.afternoonLocation === 'Client Office' || entry.afternoonLocation === 'Other') && entry.afternoonClient?.trim()
+                ? entry.afternoonClient.trim()
+                : undefined,
+              notes: entry.afternoonNotes?.trim() || undefined,
+            })
+          }
+        } else {
+          // Full day entry
+          entries.push({
+            date: entry.date,
+            location: entry.location,
+            time_period: null,
+            client: (entry.location === 'Client Office' || entry.location === 'Other') && entry.client.trim()
+              ? entry.client.trim()
+              : undefined,
+            notes: entry.notes.trim() || undefined,
+          })
+        }
+      }
+
       const request = {
         user_name: userName.trim(),
-        entries: weekEntries.map((entry) => ({
-          date: entry.date,
-          location: entry.location, // Send new location names directly (backend accepts them)
-          client: (entry.location === 'Client Office' || entry.location === 'Other') && entry.client.trim() 
-            ? entry.client.trim() 
-            : undefined,
-          notes: entry.notes.trim() || undefined,
-        })),
+        entries: entries,
       }
 
       await saveWeek(request)
@@ -791,6 +1001,17 @@ function App() {
             >
               <span style={{ fontSize: '18px', marginRight: '6px' }}>🏠</span> All WFH
             </button>
+            <button
+              className={`preset-btn ${isSplitMode ? 'active' : ''}`}
+              onClick={() => setIsSplitMode(!isSplitMode)}
+              type="button"
+              style={{
+                borderColor: isSplitMode ? '#00ff00' : undefined,
+                backgroundColor: isSplitMode ? '#003300' : undefined,
+              }}
+            >
+              <span style={{ fontSize: '18px', marginRight: '6px' }}>⏰</span> Split Working
+            </button>
           </div>
 
           <table className="week-table">
@@ -798,101 +1019,178 @@ function App() {
               <tr>
                 <th>Date</th>
                 <th>Day</th>
-                <th>Location</th>
-                <th>Client</th>
-                <th>Notes</th>
+                {isSplitMode ? (
+                  <>
+                    <th>Morning Location</th>
+                    <th>Morning Client</th>
+                    <th>Morning Notes</th>
+                    <th>Afternoon Location</th>
+                    <th>Afternoon Client</th>
+                    <th>Afternoon Notes</th>
+                  </>
+                ) : (
+                  <>
+                    <th>Location</th>
+                    <th>Client</th>
+                    <th>Notes</th>
+                  </>
+                )}
               </tr>
             </thead>
             <tbody>
-              {weekEntries.map((entry, index) => (
-                <tr key={entry.date}>
-                  <td>{entry.date}</td>
-                  <td>{entry.dayName}</td>
-                  <td>
-                    <select
-                      value={entry.location}
-                      onChange={(e) =>
-                        handleLocationChange(
-                          index,
-                          e.target.value as WorkLocation
-                        )
-                      }
-                    >
-                      <option value="Neal Street">Neal Street</option>
-                      <option value="WFH">WFH</option>
-                      <option value="Client Office">Client Office</option>
-                      <option value="Working From Abroad">Working From Abroad</option>
-                      <option value="Holiday">Holiday</option>
-                      <option value="Other">Other</option>
-                    </select>
-                  </td>
-                  <td>
-                    {entry.location === 'Client Office' ? (
-                      entry.isCustomClient ? (
-                        <input
-                          className="client-input"
-                          type="text"
-                          value={entry.client}
-                          onChange={(e) =>
-                            handleClientChange(index, e.target.value)
-                          }
-                          placeholder="Enter client name"
-                          style={{ marginTop: '4px' }}
-                        />
-                      ) : (
-                        <div>
-                          <select
-                            value={entry.client || ''}
-                            onChange={(e) =>
-                              handleClientTypeChange(index, e.target.value)
-                            }
-                            style={{
-                              width: '100%',
-                              padding: '8px',
-                              border: '2px solid #ffffff',
-                              borderRadius: '6px',
-                              fontSize: '14px',
-                              background: '#000000',
-                              color: '#ffffff',
-                              fontWeight: '600',
-                              marginBottom: '4px',
-                            }}
-                          >
-                            <option value="">Select client</option>
-                            {clientOptions.map((client) => (
-                              <option key={client} value={client}>
-                                {client}
-                              </option>
-                            ))}
-                            <option value="Other">Other</option>
-                          </select>
-                        </div>
-                      )
-                    ) : entry.location === 'Other' ? (
+              {weekEntries.map((entry, index) => {
+                const renderLocationSelect = (location: WorkLocation | undefined, onChange: (loc: WorkLocation) => void) => (
+                  <select
+                    value={location || 'Neal Street'}
+                    onChange={(e) => onChange(e.target.value as WorkLocation)}
+                  >
+                    <option value="Neal Street">Neal Street</option>
+                    <option value="WFH">WFH</option>
+                    <option value="Client Office">Client Office</option>
+                    <option value="Working From Abroad">Working From Abroad</option>
+                    <option value="Holiday">Holiday</option>
+                    <option value="Other">Other</option>
+                  </select>
+                )
+                
+                const renderClientInput = (
+                  location: WorkLocation | undefined,
+                  client: string | undefined,
+                  isCustom: boolean | undefined,
+                  onChange: (client: string) => void,
+                  onClientTypeChange: (clientType: string) => void
+                ) => {
+                  if (!location) return <span style={{ color: '#666', fontStyle: 'italic' }}>N/A</span>
+                  if (location === 'Client Office') {
+                    return isCustom ? (
                       <input
                         className="client-input"
                         type="text"
-                        value={entry.client}
-                        onChange={(e) =>
-                          handleClientChange(index, e.target.value)
-                        }
-                        placeholder="Enter location description"
+                        value={client || ''}
+                        onChange={(e) => onChange(e.target.value)}
+                        placeholder="Enter client name"
                         style={{ marginTop: '4px' }}
                       />
                     ) : (
-                      <span style={{ color: '#666', fontStyle: 'italic' }}>N/A</span>
-                    )}
-                  </td>
-                  <td>
-                    <input
-                      type="text"
-                      value={entry.notes}
-                      onChange={(e) => handleNotesChange(index, e.target.value)}
-                      placeholder="Optional notes"
-                    />
-                  </td>
-                </tr>
-              ))}
+                      <div>
+                        <select
+                          value={client || ''}
+                          onChange={(e) => onClientTypeChange(e.target.value)}
+                          style={{
+                            width: '100%',
+                            padding: '8px',
+                            border: '2px solid #ffffff',
+                            borderRadius: '6px',
+                            fontSize: '14px',
+                            background: '#000000',
+                            color: '#ffffff',
+                            fontWeight: '600',
+                            marginBottom: '4px',
+                          }}
+                        >
+                          <option value="">Select client</option>
+                          {clientOptions.map((c) => (
+                            <option key={c} value={c}>
+                              {c}
+                            </option>
+                          ))}
+                          <option value="Other">Other</option>
+                        </select>
+                      </div>
+                    )
+                  } else if (location === 'Other') {
+                    return (
+                      <input
+                        className="client-input"
+                        type="text"
+                        value={client || ''}
+                        onChange={(e) => onChange(e.target.value)}
+                        placeholder="Enter location description"
+                        style={{ marginTop: '4px' }}
+                      />
+                    )
+                  }
+                  return <span style={{ color: '#666', fontStyle: 'italic' }}>N/A</span>
+                }
+                
+                if (isSplitMode) {
+                  return (
+                    <tr key={entry.date}>
+                      <td>{entry.date}</td>
+                      <td>{entry.dayName}</td>
+                      <td>
+                        <div style={{ fontWeight: '700', marginBottom: '4px', color: '#ffff00' }}>Morning</div>
+                        {renderLocationSelect(entry.morningLocation, (loc) => handleLocationChange(index, loc, 'morning'))}
+                      </td>
+                      <td>
+                        {renderClientInput(
+                          entry.morningLocation,
+                          entry.morningClient,
+                          entry.morningIsCustomClient,
+                          (client) => handleClientChange(index, client, 'morning'),
+                          (clientType) => handleClientTypeChange(index, clientType, 'morning')
+                        )}
+                      </td>
+                      <td>
+                        <input
+                          type="text"
+                          value={entry.morningNotes || ''}
+                          onChange={(e) => handleNotesChange(index, e.target.value, 'morning')}
+                          placeholder="Optional notes"
+                        />
+                      </td>
+                      <td>
+                        <div style={{ fontWeight: '700', marginBottom: '4px', color: '#ffff00' }}>Afternoon</div>
+                        {renderLocationSelect(entry.afternoonLocation, (loc) => handleLocationChange(index, loc, 'afternoon'))}
+                      </td>
+                      <td>
+                        {renderClientInput(
+                          entry.afternoonLocation,
+                          entry.afternoonClient,
+                          entry.afternoonIsCustomClient,
+                          (client) => handleClientChange(index, client, 'afternoon'),
+                          (clientType) => handleClientTypeChange(index, clientType, 'afternoon')
+                        )}
+                      </td>
+                      <td>
+                        <input
+                          type="text"
+                          value={entry.afternoonNotes || ''}
+                          onChange={(e) => handleNotesChange(index, e.target.value, 'afternoon')}
+                          placeholder="Optional notes"
+                        />
+                      </td>
+                    </tr>
+                  )
+                }
+                
+                return (
+                  <tr key={entry.date}>
+                    <td>{entry.date}</td>
+                    <td>{entry.dayName}</td>
+                    <td>
+                      {renderLocationSelect(entry.location, (loc) => handleLocationChange(index, loc))}
+                    </td>
+                    <td>
+                      {renderClientInput(
+                        entry.location,
+                        entry.client,
+                        entry.isCustomClient,
+                        (client) => handleClientChange(index, client),
+                        (clientType) => handleClientTypeChange(index, clientType)
+                      )}
+                    </td>
+                    <td>
+                      <input
+                        type="text"
+                        value={entry.notes}
+                        onChange={(e) => handleNotesChange(index, e.target.value)}
+                        placeholder="Optional notes"
+                      />
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
 
@@ -942,77 +1240,129 @@ function App() {
                       })}
                     </h3>
 
-                    {locationOrder.map((location) => {
-                      const entriesForLocation = groupedEntries[date][location] || []
-                      if (entriesForLocation.length === 0) return null
+                    {(() => {
+                      // Get all location keys (including those with time_period suffixes)
+                      const allLocationKeys = Object.keys(groupedEntries[date] || {})
+                      
+                      // Group by base location (without time_period)
+                      const locationGroups: { [baseLoc: string]: { [key: string]: SummaryRow[] } } = {}
+                      for (const key of allLocationKeys) {
+                        // Extract base location (remove "(Morning)" or "(Afternoon)" suffix)
+                        const baseLoc = key.replace(/\s*\(Morning\)$/, '').replace(/\s*\(Afternoon\)$/, '')
+                        if (!locationGroups[baseLoc]) {
+                          locationGroups[baseLoc] = {}
+                        }
+                        locationGroups[baseLoc][key] = groupedEntries[date][key] || []
+                      }
+                      
+                      // Render each location group
+                      return locationOrder.map((baseLocation) => {
+                        const locationVariants = locationGroups[baseLocation]
+                        if (!locationVariants || Object.keys(locationVariants).length === 0) return null
+                        
+                        // Get all entries for this base location (across all time periods)
+                        const allEntriesForLocation: SummaryRow[] = []
+                        for (const variantKey of Object.keys(locationVariants)) {
+                          allEntriesForLocation.push(...locationVariants[variantKey])
+                        }
+                        
+                        if (allEntriesForLocation.length === 0) return null
 
-                      // If location is Client Office or Other, group by client/description
-                      if (location === 'Client Office' || location === 'Other') {
-                        const entriesByDescription = entriesForLocation.reduce((acc, entry) => {
-                          const description = entry.client || (location === 'Other' ? 'No description' : 'No Client')
-                          if (!acc[description]) {
-                            acc[description] = []
-                          }
-                          acc[description].push(entry)
-                          return acc
-                        }, {} as { [description: string]: SummaryRow[] })
+                        // If location is Client Office or Other, group by client/description AND time_period
+                        if (baseLocation === 'Client Office' || baseLocation === 'Other') {
+                          // Group by description and time_period
+                          const entriesByDescriptionAndPeriod = allEntriesForLocation.reduce((acc, entry) => {
+                            const description = entry.client || (baseLocation === 'Other' ? 'No description' : 'No Client')
+                            const periodLabel = entry.time_period ? ` (${entry.time_period})` : ''
+                            const key = `${description}${periodLabel}`
+                            if (!acc[key]) {
+                              acc[key] = []
+                            }
+                            acc[key].push(entry)
+                            return acc
+                          }, {} as { [key: string]: SummaryRow[] })
 
-                        return (
-                          <div key={location} className="location-group">
-                            <div className="location-group-title">
-                              <span className={`location-badge ${getLocationBadgeClass(location)}`}>
-                                {location}
-                              </span>
+                          return (
+                            <div key={baseLocation} className="location-group">
+                              <div className="location-group-title">
+                                <span className={`location-badge ${getLocationBadgeClass(baseLocation)}`}>
+                                  {baseLocation}
+                                </span>
+                              </div>
+                              {Object.keys(entriesByDescriptionAndPeriod).sort().map((key) => {
+                                const entries = entriesByDescriptionAndPeriod[key]
+                                // For Client Office, check if it's a custom client
+                                const description = key.replace(/\s*\(Morning\)$/, '').replace(/\s*\(Afternoon\)$/, '')
+                                const isCustomClient = baseLocation === 'Client Office' && !clientOptions.includes(description)
+                                const heading = baseLocation === 'Other' 
+                                  ? key 
+                                  : isCustomClient 
+                                    ? `Other${key.includes('(') ? '' : ' (' + description + ')'}` 
+                                    : key
+                                
+                                return (
+                                  <div key={key} style={{ marginTop: '10px', paddingLeft: '20px' }}>
+                                    <div style={{ fontSize: '14px', fontWeight: '700', marginBottom: '5px', color: '#ffff00' }}>
+                                      📊 {heading}
+                                    </div>
+                                    <div className="location-people">
+                                      {entries.map((entry, index) => (
+                                        <span key={`${entry.user_name}-${index}`} className="person-name-inline">
+                                          {entry.user_name}
+                                          {index < entries.length - 1 && ', '}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )
+                              })}
                             </div>
-                            {Object.keys(entriesByDescription).sort().map((description) => {
-                              // For Client Office, check if it's a custom client
-                              const isCustomClient = location === 'Client Office' && !clientOptions.includes(description)
-                              const heading = location === 'Other' 
-                                ? description 
-                                : isCustomClient 
-                                  ? `Other (${description})` 
-                                  : description
+                          )
+                        }
+
+                        // Regular display for other locations - group by time_period
+                        // Group entries by time_period
+                        const entriesByPeriod = allEntriesForLocation.reduce((acc, entry) => {
+                          const periodKey = entry.time_period || 'Full Day'
+                          if (!acc[periodKey]) {
+                            acc[periodKey] = []
+                          }
+                          acc[periodKey].push(entry)
+                          return acc
+                        }, {} as { [period: string]: SummaryRow[] })
+                        
+                        // Render each time period variant
+                        return (
+                          <div key={baseLocation} className="location-group">
+                            {Object.keys(entriesByPeriod).sort().map((periodKey) => {
+                              const entries = entriesByPeriod[periodKey]
+                              const locationLabel = periodKey === 'Full Day' 
+                                ? baseLocation 
+                                : `${baseLocation} (${periodKey})`
                               
                               return (
-                                <div key={description} style={{ marginTop: '10px', paddingLeft: '20px' }}>
-                                  <div style={{ fontSize: '14px', fontWeight: '700', marginBottom: '5px', color: '#ffff00' }}>
-                                    📊 {heading}
-                                  </div>
-                                  <div className="location-people">
-                                    {entriesByDescription[description].map((entry, index) => (
-                                      <span key={`${entry.user_name}-${index}`} className="person-name-inline">
-                                        {entry.user_name}
-                                        {index < entriesByDescription[description].length - 1 && ', '}
-                                      </span>
-                                    ))}
+                                <div key={periodKey} style={{ marginBottom: periodKey !== 'Full Day' ? '8px' : '0' }}>
+                                  <div className="location-group-title">
+                                    <span className={`location-badge ${getLocationBadgeClass(baseLocation)}`}>
+                                      {locationLabel}
+                                    </span>
+                                    <span className="location-people">
+                                      {entries.map((entry, index) => (
+                                        <span key={`${entry.user_name}-${index}`} className="person-name-inline">
+                                          {entry.user_name}
+                                          {(entry.client && (baseLocation === 'Client Office' || baseLocation === 'Other')) && ` (${entry.client})`}
+                                          {index < entries.length - 1 && ', '}
+                                        </span>
+                                      ))}
+                                    </span>
                                   </div>
                                 </div>
                               )
                             })}
                           </div>
                         )
-                      }
-
-                      // Regular display for other locations
-                      return (
-                        <div key={location} className="location-group">
-                          <div className="location-group-title">
-                            <span className={`location-badge ${getLocationBadgeClass(location)}`}>
-                              {location}
-                            </span>
-                            <span className="location-people">
-                              {entriesForLocation.map((entry, index) => (
-                                <span key={`${entry.user_name}-${index}`} className="person-name-inline">
-                                  {entry.user_name}
-                                  {(entry.client && (location === 'Client Office' || location === 'Other')) && ` (${entry.client})`}
-                                  {index < entriesForLocation.length - 1 && ', '}
-                                </span>
-                              ))}
-                            </span>
-                          </div>
-                        </div>
-                      )
-                    })}
+                      })
+                    })()}
 
                     {/* Show people who haven't entered */}
                     {(() => {

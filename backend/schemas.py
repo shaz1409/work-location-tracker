@@ -7,6 +7,7 @@ from sqlmodel import SQLModel
 class EntryCreate(BaseModel):
     date: str  # YYYY-MM-DD format
     location: str
+    time_period: str | None = None  # 'Morning', 'Afternoon', or None for full day
     client: str | None = None
     notes: str | None = None
 
@@ -49,6 +50,7 @@ class SummaryRow(BaseModel):
     user_name: str
     date: str
     location: str
+    time_period: str | None = None  # 'Morning', 'Afternoon', or None for full day
     client: str | None = None
     notes: str | None = None
 
@@ -62,6 +64,7 @@ class EntryResponse(SQLModel):
     user_name: str
     date: str
     location: str
+    time_period: str | None = None
     client: str | None = None
     notes: str | None = None
     created_at: datetime

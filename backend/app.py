@@ -101,9 +101,9 @@ def bulk_upsert_entries(
                 # PostgreSQL: Use INSERT ... ON CONFLICT DO UPDATE
                 result = session.execute(
                     text("""
-                        INSERT INTO entry (user_key, user_name, date, location, client, notes, created_at, updated_at)
-                        VALUES (:user_key, :user_name, :date, :location, :client, :notes, :created_at, :updated_at)
-                        ON CONFLICT (user_key, date) DO UPDATE
+                        INSERT INTO entry (user_key, user_name, date, location, time_period, client, notes, created_at, updated_at)
+                        VALUES (:user_key, :user_name, :date, :location, :time_period, :client, :notes, :created_at, :updated_at)
+                        ON CONFLICT (user_key, date, time_period) DO UPDATE
                         SET user_name = EXCLUDED.user_name,
                             location = EXCLUDED.location,
                             client = EXCLUDED.client,
@@ -115,6 +115,7 @@ def bulk_upsert_entries(
                         "user_name": request.user_name.strip(),
                         "date": entry_data.date,
                         "location": entry_data.location,
+                        "time_period": entry_data.time_period,
                         "client": entry_data.client,
                         "notes": entry_data.notes,
                         "created_at": now,
@@ -128,12 +129,14 @@ def bulk_upsert_entries(
                     select(Entry)
                     .where(Entry.user_key == user_key)
                     .where(Entry.date == entry_data.date)
+                    .where(Entry.time_period == entry_data.time_period)
                 ).first()
                 
                 if existing:
                     # Update existing
                     existing.user_name = request.user_name.strip()
                     existing.location = entry_data.location
+                    existing.time_period = entry_data.time_period
                     existing.client = entry_data.client
                     existing.notes = entry_data.notes
                     existing.updated_at = now
@@ -144,6 +147,7 @@ def bulk_upsert_entries(
                         user_name=request.user_name.strip(),
                         date=entry_data.date,
                         location=entry_data.location,
+                        time_period=entry_data.time_period,
                         client=entry_data.client,
                         notes=entry_data.notes,
                         created_at=now,
@@ -198,6 +202,7 @@ def get_week_summary(
                 user_name=entry.user_name,
                 date=entry.date,
                 location=entry.location,
+                time_period=entry.time_period,
                 client=entry.client,
                 notes=entry.notes,
             )
@@ -244,6 +249,7 @@ def get_entries(
                 user_name=entry.user_name,
                 date=entry.date,
                 location=entry.location,
+                time_period=entry.time_period,
                 client=entry.client,
                 notes=entry.notes,
                 created_at=entry.created_at,
@@ -404,6 +410,7 @@ def check_existing_entries(
                 {
                     "date": e.date,
                     "location": e.location,
+                    "time_period": e.time_period,
                     "client": e.client,
                     "notes": e.notes,
                 }
