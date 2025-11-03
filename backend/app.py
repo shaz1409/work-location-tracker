@@ -25,6 +25,21 @@ logger = logging.getLogger(__name__)
 # Cache for time_period column check
 _time_period_exists = None
 
+def create_entry_from_row(row) -> object:
+    """Create an Entry-like object from a database row."""
+    entry = type('Entry', (), {})()
+    entry.id = row[0]
+    entry.user_key = row[1]
+    entry.user_name = row[2]
+    entry.date = row[3]
+    entry.location = row[4]
+    entry.time_period = None
+    entry.client = row[5]
+    entry.notes = row[6]
+    entry.created_at = row[7]
+    entry.updated_at = row[8]
+    return entry
+
 def check_time_period_column_exists(session: Session = None) -> bool:
     """Check if time_period column exists in entry table."""
     global _time_period_exists
@@ -345,21 +360,7 @@ def get_week_summary(
                 """), {"start_date": week_start, "end_date": end_date.strftime("%Y-%m-%d")})
                 rows = result.fetchall()
                 # Convert to Entry-like objects
-                entries = []
-                for row in rows:
-                    entry_dict = {
-                        "id": row[0],
-                        "user_key": row[1],
-                        "user_name": row[2],
-                        "date": row[3],
-                        "location": row[4],
-                        "time_period": None,  # Column doesn't exist yet
-                        "client": row[5],
-                        "notes": row[6],
-                        "created_at": row[7],
-                        "updated_at": row[8],
-                    }
-                    entries.append(type('Entry', (), entry_dict)())
+                entries = [create_entry_from_row(row) for row in rows]
         else:
             # SQLite - similar approach
             try:
@@ -387,14 +388,7 @@ def get_week_summary(
                     ORDER BY date, user_name
                 """), {"start_date": week_start, "end_date": end_date.strftime("%Y-%m-%d")})
                 rows = result.fetchall()
-                entries = []
-                for row in rows:
-                    entry_dict = {
-                        "id": row[0], "user_key": row[1], "user_name": row[2],
-                        "date": row[3], "location": row[4], "time_period": None,
-                        "client": row[5], "notes": row[6], "created_at": row[7], "updated_at": row[8],
-                    }
-                    entries.append(type('Entry', (), entry_dict)())
+                entries = [create_entry_from_row(row) for row in rows]
 
         # Convert to response format
         # Normalize empty string back to None for API consistency
@@ -461,15 +455,7 @@ def get_entries(
             result = session.execute(text(sql), params)
             rows = result.fetchall()
             # Convert to Entry-like objects
-            entries = []
-            for row in rows:
-                entry_dict = {
-                    "id": row[0], "user_key": row[1], "user_name": row[2],
-                    "date": row[3], "location": row[4], "time_period": None,
-                    "client": row[5], "notes": row[6],
-                    "created_at": row[7], "updated_at": row[8],
-                }
-                entries.append(type('Entry', (), entry_dict)())
+            entries = [create_entry_from_row(row) for row in rows]
 
         return [
             EntryResponse(
@@ -526,8 +512,19 @@ def get_all_users(
 
     try:
         # Query all entries to get unique user names
-        # Use DISTINCT on user_key to get unique users, then get latest user_name for each
-        entries = session.exec(select(Entry)).all()
+        time_period_exists = check_time_period_column_exists()
+        
+        if time_period_exists:
+            # Use model query if column exists
+            entries = session.exec(select(Entry)).all()
+        else:
+            # Use raw SQL if column doesn't exist
+            result = session.execute(text("""
+                SELECT id, user_key, user_name, date, location, client, notes, created_at, updated_at
+                FROM entry
+            """))
+            rows = result.fetchall()
+            entries = [create_entry_from_row(row) for row in rows]
 
         # Group by user_key and get latest user_name (preserve display name with latest casing)
         user_map = {}
@@ -586,15 +583,7 @@ def get_users_for_week(
                 WHERE date >= :start_date AND date <= :end_date
             """), {"start_date": week_start, "end_date": end_date.strftime("%Y-%m-%d")})
             rows = result.fetchall()
-            entries = []
-            for row in rows:
-                entry_dict = {
-                    "id": row[0], "user_key": row[1], "user_name": row[2],
-                    "date": row[3], "location": row[4], "time_period": None,
-                    "client": row[5], "notes": row[6],
-                    "created_at": row[7], "updated_at": row[8],
-                }
-                entries.append(type('Entry', (), entry_dict)())
+            entries = [create_entry_from_row(row) for row in rows]
 
         # Get unique user names grouped by user_key (normalized)
         user_map = {}
@@ -850,15 +839,7 @@ def debug_database(session: Session = Depends(get_session)):
                 FROM entry
             """))
             rows = result.fetchall()
-            all_entries = []
-            for row in rows:
-                entry_dict = {
-                    "id": row[0], "user_key": row[1], "user_name": row[2],
-                    "date": row[3], "location": row[4], "time_period": None,
-                    "client": row[5], "notes": row[6],
-                    "created_at": row[7], "updated_at": row[8],
-                }
-                all_entries.append(type('Entry', (), entry_dict)())
+            all_entries = [create_entry_from_row(row) for row in rows]
         
         total_count = len(all_entries)
         
