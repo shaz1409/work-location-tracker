@@ -50,7 +50,10 @@ async def lifespan(app: FastAPI):
             except ImportError as e:
                 logger.debug(f"Migration 002 module not found: {e}")
             except Exception as e:
-                logger.warning(f"Migration 002 check failed (may already be applied): {str(e)}")
+                logger.error(f"Migration 002 failed: {str(e)}")
+                # Don't raise - allow app to start, but log the error clearly
+                import traceback
+                logger.error(f"Migration 002 traceback: {traceback.format_exc()}")
     except Exception as e:
         logger.warning(f"Migration check failed: {str(e)}")
     

@@ -42,38 +42,52 @@ def migrate_postgres(conn):
     logger.info("Running PostgreSQL migration for time_period...")
     
     # Check if time_period already exists (idempotent)
-    try:
-        result = conn.execute(text("""
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_name = 'entry' AND column_name = 'time_period'
-        """))
-        
-        if result.fetchone():
-            logger.info("time_period column already exists, checking constraint...")
-            # Check if unique constraint is already updated
-            result = conn.execute(text("""
-                SELECT indexname 
-                FROM pg_indexes 
-                WHERE tablename = 'entry' 
-                AND indexname = 'uniq_entries_userkey_date_timeperiod'
-            """))
-            if result.fetchone():
-                logger.info("Unique constraint already updated, skipping migration")
-                return
-        else:
-            # Step 1: Add time_period column (nullable)
-            logger.info("Adding time_period column...")
-            conn.execute(text("ALTER TABLE entry ADD COLUMN time_period TEXT"))
-    except Exception as e:
-        # Table might not exist yet (first run)
-        logger.warning(f"Could not check/add time_period column: {e}")
-        return
+    result = conn.execute(text("""
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'entry' AND column_name = 'time_period'
+    """))
     
-    # Step 2: Drop old unique constraint/index
+    if result.fetchone():
+        logger.info("time_period column already exists, checking constraint...")
+        # Check if unique constraint is already updated
+        result = conn.execute(text("""
+            SELECT indexname 
+            FROM pg_indexes 
+            WHERE tablename = 'entry' 
+            AND indexname = 'uniq_entries_userkey_date_timeperiod'
+        """))
+        if result.fetchone():
+            logger.info("Unique constraint already updated, skipping migration")
+            return
+        # Column exists but constraint doesn't - continue to update constraint
+    else:
+        # Step 1: Add time_period column (nullable) - SAFE: doesn't affect existing data
+        # All existing rows will have time_period = NULL (which means full day)
+        logger.info("Adding time_period column...")
+        logger.info("⚠️  IMPORTANT: All existing entries will have time_period = NULL (full day entries)")
+        conn.execute(text("ALTER TABLE entry ADD COLUMN time_period TEXT"))
+        logger.info("✅ Column added. Existing entries preserved with time_period = NULL")
+    
+    # Step 2: Verify we can drop old constraint safely (check if any duplicates would be created)
+    logger.info("Checking for potential duplicate entries before updating constraint...")
+    result = conn.execute(text("""
+        SELECT user_key, date, COUNT(*) as count
+        FROM entry
+        GROUP BY user_key, date
+        HAVING COUNT(*) > 1
+    """))
+    duplicates = result.fetchall()
+    if duplicates:
+        logger.warning(f"Found {len(duplicates)} duplicate (user_key, date) pairs. These will be preserved but may cause constraint issues.")
+        for dup in duplicates:
+            logger.warning(f"  - user_key: {dup[0]}, date: {dup[1]}, count: {dup[2]}")
+    
+    # Step 2: Drop old unique constraint/index - SAFE: existing data is preserved
     logger.info("Dropping old unique constraint...")
     try:
         conn.execute(text("DROP INDEX IF EXISTS uniq_entries_userkey_date"))
+        logger.info("✅ Old index dropped")
     except Exception as e:
         logger.warning(f"Could not drop old index (might not exist): {e}")
     
@@ -81,17 +95,21 @@ def migrate_postgres(conn):
         conn.execute(text("""
             ALTER TABLE entry DROP CONSTRAINT IF EXISTS uniq_entries_userkey_date
         """))
+        logger.info("✅ Old constraint dropped")
     except Exception as e:
         logger.warning(f"Could not drop old constraint (might not exist): {e}")
     
-    # Step 3: Create new unique constraint with time_period
+    # Step 3: Create new unique constraint with time_period - SAFE: preserves existing entries
     # Use COALESCE to treat NULL as empty string for uniqueness
     # This ensures only one NULL (full day) entry per (user_key, date)
+    # All existing entries have time_period = NULL, so they'll still be unique per (user_key, date)
     logger.info("Creating new unique constraint on (user_key, date, time_period)...")
+    logger.info("✅ Existing entries will remain unique (time_period = NULL is treated as empty string)")
     conn.execute(text("""
         CREATE UNIQUE INDEX IF NOT EXISTS uniq_entries_userkey_date_timeperiod 
         ON entry (user_key, date, COALESCE(time_period, ''))
     """))
+    logger.info("✅ New unique constraint created. All existing data preserved!")
 
 
 def migrate_sqlite(conn):
