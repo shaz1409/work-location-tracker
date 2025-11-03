@@ -1,0 +1,10 @@
+{
+  "name": "work-location-tracker",
+  "version": "1.0.0",
+  "description": "Work Location Tracker - Frontend in frontend/, Backend in backend/",
+  "scripts": {
+    "install": "cd frontend && npm install",
+    "build": "cd frontend && npm run build"
+  }
+}
+
