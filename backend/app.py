@@ -25,19 +25,34 @@ logger = logging.getLogger(__name__)
 # Cache for time_period column check
 _time_period_exists = None
 
-def create_entry_from_row(row) -> object:
-    """Create an Entry-like object from a database row."""
+def create_entry_from_row(row, include_time_period: bool = False) -> object:
+    """Create an Entry-like object from a database row.
+    
+    Args:
+        row: Database row tuple
+        include_time_period: If True, expects time_period as row[8], shifts other fields
+    """
     entry = type('Entry', (), {})()
     entry.id = row[0]
     entry.user_key = row[1]
     entry.user_name = row[2]
     entry.date = row[3]
     entry.location = row[4]
-    entry.time_period = None
-    entry.client = row[5]
-    entry.notes = row[6]
-    entry.created_at = row[7]
-    entry.updated_at = row[8]
+    if include_time_period and len(row) > 8:
+        # Row includes time_period: id, user_key, user_name, date, location, time_period, client, notes, created_at, updated_at
+        # Normalize empty string to None for consistency
+        entry.time_period = None if (not row[5] or row[5] == '') else row[5]
+        entry.client = row[6]
+        entry.notes = row[7]
+        entry.created_at = row[8]
+        entry.updated_at = row[9]
+    else:
+        # Row doesn't include time_period: id, user_key, user_name, date, location, client, notes, created_at, updated_at
+        entry.time_period = None
+        entry.client = row[5]
+        entry.notes = row[6]
+        entry.created_at = row[7]
+        entry.updated_at = row[8]
     return entry
 
 def check_time_period_column_exists(session: Session = None) -> bool:
@@ -340,18 +355,19 @@ def get_week_summary(
                 time_period_exists = False
             
             if time_period_exists:
-                # Use model query if column exists
-                stmt = (
-                    select(Entry)
-                    .where(
-                        Entry.date >= week_start,
-                        Entry.date <= end_date.strftime("%Y-%m-%d"),
-                    )
-                    .order_by(Entry.date, Entry.user_name)
-                )
-                entries = session.exec(stmt).all()
+                # Use raw SQL to include time_period and normalize empty string to None
+                result = session.execute(text("""
+                    SELECT id, user_key, user_name, date, location, 
+                           NULLIF(time_period, '') as time_period,
+                           client, notes, created_at, updated_at
+                    FROM entry
+                    WHERE date >= :start_date AND date <= :end_date
+                    ORDER BY date, user_name, time_period
+                """), {"start_date": week_start, "end_date": end_date.strftime("%Y-%m-%d")})
+                rows = result.fetchall()
+                entries = [create_entry_from_row(row, include_time_period=True) for row in rows]
             else:
-                # Use raw SQL to avoid time_period column
+                # Use raw SQL to avoid time_period column (when it doesn't exist)
                 result = session.execute(text("""
                     SELECT id, user_key, user_name, date, location, client, notes, created_at, updated_at
                     FROM entry
@@ -359,8 +375,8 @@ def get_week_summary(
                     ORDER BY date, user_name
                 """), {"start_date": week_start, "end_date": end_date.strftime("%Y-%m-%d")})
                 rows = result.fetchall()
-                # Convert to Entry-like objects
-                entries = [create_entry_from_row(row) for row in rows]
+                # Convert to Entry-like objects (time_period doesn't exist in DB)
+                entries = [create_entry_from_row(row, include_time_period=False) for row in rows]
         else:
             # SQLite - similar approach
             try:
@@ -371,15 +387,17 @@ def get_week_summary(
                 time_period_exists = False
             
             if time_period_exists:
-                stmt = (
-                    select(Entry)
-                    .where(
-                        Entry.date >= week_start,
-                        Entry.date <= end_date.strftime("%Y-%m-%d"),
-                    )
-                    .order_by(Entry.date, Entry.user_name)
-                )
-                entries = session.exec(stmt).all()
+                # Use raw SQL to include time_period and normalize empty string to None
+                result = session.execute(text("""
+                    SELECT id, user_key, user_name, date, location, 
+                           NULLIF(time_period, '') as time_period,
+                           client, notes, created_at, updated_at
+                    FROM entry
+                    WHERE date >= :start_date AND date <= :end_date
+                    ORDER BY date, user_name, time_period
+                """), {"start_date": week_start, "end_date": end_date.strftime("%Y-%m-%d")})
+                rows = result.fetchall()
+                entries = [create_entry_from_row(row, include_time_period=True) for row in rows]
             else:
                 result = session.execute(text("""
                     SELECT id, user_key, user_name, date, location, client, notes, created_at, updated_at
@@ -388,7 +406,7 @@ def get_week_summary(
                     ORDER BY date, user_name
                 """), {"start_date": week_start, "end_date": end_date.strftime("%Y-%m-%d")})
                 rows = result.fetchall()
-                entries = [create_entry_from_row(row) for row in rows]
+                entries = [create_entry_from_row(row, include_time_period=False) for row in rows]
 
         # Convert to response format
         # Normalize empty string back to None for API consistency
