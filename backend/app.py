@@ -27,19 +27,32 @@ async def lifespan(app: FastAPI):
     """Initialize database on startup."""
     create_db_and_tables()
     
-    # Run migration if needed
+    # Run migrations if needed
     try:
         import sys
         import os
         migrations_path = os.path.join(os.path.dirname(__file__), 'migrations')
         if os.path.exists(migrations_path):
-            from migrations.migrate_001_add_user_key_constraint import migrate as migrate_001
             from db import engine
-            migrate_001(engine)
-    except ImportError as e:
-        logger.debug(f"Migration module not found (may not exist yet): {e}")
+            # Run migration 001: Add user_key constraint
+            try:
+                from migrations.migrate_001_add_user_key_constraint import migrate as migrate_001
+                migrate_001(engine)
+            except ImportError as e:
+                logger.debug(f"Migration 001 module not found: {e}")
+            except Exception as e:
+                logger.warning(f"Migration 001 check failed (may already be applied): {str(e)}")
+            
+            # Run migration 002: Add time_period
+            try:
+                from migrations.migrate_002_add_time_period import migrate as migrate_002
+                migrate_002(engine)
+            except ImportError as e:
+                logger.debug(f"Migration 002 module not found: {e}")
+            except Exception as e:
+                logger.warning(f"Migration 002 check failed (may already be applied): {str(e)}")
     except Exception as e:
-        logger.warning(f"Migration check failed (may already be applied): {str(e)}")
+        logger.warning(f"Migration check failed: {str(e)}")
     
     logger.info("Database initialized")
     yield
