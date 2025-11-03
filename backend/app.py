@@ -5,8 +5,9 @@ from datetime import datetime, timedelta
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, select
+from sqlalchemy import text
 
-from db import create_db_and_tables, get_session
+from db import create_db_and_tables, get_session, engine
 from models import Entry
 from report import generate_and_send_weekly_report
 from schemas import (
@@ -20,6 +21,34 @@ from schemas import (
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Cache for time_period column check
+_time_period_exists = None
+
+def check_time_period_column_exists(session: Session = None) -> bool:
+    """Check if time_period column exists in entry table."""
+    global _time_period_exists
+    if _time_period_exists is not None:
+        return _time_period_exists
+    
+    try:
+        is_postgres = "postgresql" in str(engine.url).lower()
+        if is_postgres:
+            result = engine.connect().execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'entry' AND column_name = 'time_period'
+            """))
+            _time_period_exists = result.fetchone() is not None
+        else:
+            result = engine.connect().execute(text("PRAGMA table_info(entry)"))
+            columns = [row[1] for row in result.fetchall()]
+            _time_period_exists = 'time_period' in columns
+    except Exception as e:
+        logger.warning(f"Could not check time_period column: {e}")
+        _time_period_exists = False
+    
+    return _time_period_exists
 
 
 @asynccontextmanager
@@ -93,6 +122,9 @@ def bulk_upsert_entries(
         # Use single transaction for atomicity
         count = 0
         
+        # Check if time_period column exists
+        time_period_exists = check_time_period_column_exists()
+        
         # Check if PostgreSQL (for ON CONFLICT) or SQLite (use merge pattern)
         is_postgres = False
         try:
@@ -114,62 +146,138 @@ def bulk_upsert_entries(
             now = datetime.now(UTC)
             
             if is_postgres:
-                # PostgreSQL: Use INSERT ... ON CONFLICT DO UPDATE
-                result = session.execute(
-                    text("""
-                        INSERT INTO entry (user_key, user_name, date, location, time_period, client, notes, created_at, updated_at)
-                        VALUES (:user_key, :user_name, :date, :location, :time_period, :client, :notes, :created_at, :updated_at)
-                        ON CONFLICT (user_key, date, time_period) DO UPDATE
-                        SET user_name = EXCLUDED.user_name,
-                            location = EXCLUDED.location,
-                            client = EXCLUDED.client,
-                            notes = EXCLUDED.notes,
-                            updated_at = EXCLUDED.updated_at
-                    """),
-                    {
-                        "user_key": user_key,
-                        "user_name": request.user_name.strip(),
-                        "date": entry_data.date,
-                        "location": entry_data.location,
-                        "time_period": entry_data.time_period,
-                        "client": entry_data.client,
-                        "notes": entry_data.notes,
-                        "created_at": now,
-                        "updated_at": now,
-                    }
-                )
+                if time_period_exists:
+                    # PostgreSQL: Use INSERT ... ON CONFLICT DO UPDATE with time_period
+                    # Normalize None to empty string for consistency with migration
+                    time_period_value = entry_data.time_period if entry_data.time_period is not None else ''
+                    result = session.execute(
+                        text("""
+                            INSERT INTO entry (user_key, user_name, date, location, time_period, client, notes, created_at, updated_at)
+                            VALUES (:user_key, :user_name, :date, :location, :time_period, :client, :notes, :created_at, :updated_at)
+                            ON CONFLICT (user_key, date, time_period) DO UPDATE
+                            SET user_name = EXCLUDED.user_name,
+                                location = EXCLUDED.location,
+                                client = EXCLUDED.client,
+                                notes = EXCLUDED.notes,
+                                updated_at = EXCLUDED.updated_at
+                        """),
+                        {
+                            "user_key": user_key,
+                            "user_name": request.user_name.strip(),
+                            "date": entry_data.date,
+                            "location": entry_data.location,
+                            "time_period": time_period_value,
+                            "client": entry_data.client,
+                            "notes": entry_data.notes,
+                            "created_at": now,
+                            "updated_at": now,
+                        }
+                    )
+                else:
+                    # PostgreSQL: Use INSERT ... ON CONFLICT DO UPDATE without time_period
+                    result = session.execute(
+                        text("""
+                            INSERT INTO entry (user_key, user_name, date, location, client, notes, created_at, updated_at)
+                            VALUES (:user_key, :user_name, :date, :location, :client, :notes, :created_at, :updated_at)
+                            ON CONFLICT (user_key, date) DO UPDATE
+                            SET user_name = EXCLUDED.user_name,
+                                location = EXCLUDED.location,
+                                client = EXCLUDED.client,
+                                notes = EXCLUDED.notes,
+                                updated_at = EXCLUDED.updated_at
+                        """),
+                        {
+                            "user_key": user_key,
+                            "user_name": request.user_name.strip(),
+                            "date": entry_data.date,
+                            "location": entry_data.location,
+                            "client": entry_data.client,
+                            "notes": entry_data.notes,
+                            "created_at": now,
+                            "updated_at": now,
+                        }
+                    )
                 count += result.rowcount if result.rowcount else 1
             else:
                 # SQLite: Use ORM merge pattern (select, update or insert)
-                existing = session.exec(
-                    select(Entry)
-                    .where(Entry.user_key == user_key)
-                    .where(Entry.date == entry_data.date)
-                    .where(Entry.time_period == entry_data.time_period)
-                ).first()
+                # Normalize None to empty string for consistency
+                time_period_value = entry_data.time_period if entry_data.time_period is not None else ''
+                
+                if time_period_exists:
+                    existing = session.exec(
+                        select(Entry)
+                        .where(Entry.user_key == user_key)
+                        .where(Entry.date == entry_data.date)
+                        .where(Entry.time_period == time_period_value)
+                    ).first()
+                else:
+                    # Use raw SQL to check existing entry
+                    result = session.execute(text("""
+                        SELECT id, user_key, user_name, date, location, client, notes, created_at, updated_at
+                        FROM entry
+                        WHERE user_key = :user_key AND date = :date
+                    """), {"user_key": user_key, "date": entry_data.date})
+                    row = result.fetchone()
+                    existing = type('Entry', (), {
+                        "id": row[0], "user_key": row[1], "user_name": row[2],
+                        "date": row[3], "location": row[4], "client": row[5],
+                        "notes": row[6], "created_at": row[7], "updated_at": row[8],
+                    })() if row else None
                 
                 if existing:
                     # Update existing
-                    existing.user_name = request.user_name.strip()
-                    existing.location = entry_data.location
-                    existing.time_period = entry_data.time_period
-                    existing.client = entry_data.client
-                    existing.notes = entry_data.notes
-                    existing.updated_at = now
+                    if time_period_exists:
+                        existing.user_name = request.user_name.strip()
+                        existing.location = entry_data.location
+                        existing.time_period = time_period_value
+                        existing.client = entry_data.client
+                        existing.notes = entry_data.notes
+                        existing.updated_at = now
+                    else:
+                        # Use raw SQL to update
+                        session.execute(text("""
+                            UPDATE entry
+                            SET user_name = :user_name, location = :location,
+                                client = :client, notes = :notes, updated_at = :updated_at
+                            WHERE id = :id
+                        """), {
+                            "id": existing.id,
+                            "user_name": request.user_name.strip(),
+                            "location": entry_data.location,
+                            "client": entry_data.client,
+                            "notes": entry_data.notes,
+                            "updated_at": now,
+                        })
                 else:
                     # Insert new
-                    new_entry = Entry(
-                        user_key=user_key,
-                        user_name=request.user_name.strip(),
-                        date=entry_data.date,
-                        location=entry_data.location,
-                        time_period=entry_data.time_period,
-                        client=entry_data.client,
-                        notes=entry_data.notes,
-                        created_at=now,
-                        updated_at=now,
-                    )
-                    session.add(new_entry)
+                    if time_period_exists:
+                        new_entry = Entry(
+                            user_key=user_key,
+                            user_name=request.user_name.strip(),
+                            date=entry_data.date,
+                            location=entry_data.location,
+                            time_period=time_period_value,
+                            client=entry_data.client,
+                            notes=entry_data.notes,
+                            created_at=now,
+                            updated_at=now,
+                        )
+                        session.add(new_entry)
+                    else:
+                        # Use raw SQL to insert
+                        session.execute(text("""
+                            INSERT INTO entry (user_key, user_name, date, location, client, notes, created_at, updated_at)
+                            VALUES (:user_key, :user_name, :date, :location, :client, :notes, :created_at, :updated_at)
+                        """), {
+                            "user_key": user_key,
+                            "user_name": request.user_name.strip(),
+                            "date": entry_data.date,
+                            "location": entry_data.location,
+                            "client": entry_data.client,
+                            "notes": entry_data.notes,
+                            "created_at": now,
+                            "updated_at": now,
+                        })
                 count += 1
         
         # Single commit for all operations (atomic)
@@ -200,25 +308,102 @@ def get_week_summary(
         start_date = datetime.strptime(week_start, "%Y-%m-%d").date()
         end_date = start_date + timedelta(days=4)  # Monday to Friday
 
-        # Query entries for the week
-        stmt = (
-            select(Entry)
-            .where(
-                Entry.date >= week_start,
-                Entry.date <= end_date.strftime("%Y-%m-%d"),
-            )
-            .order_by(Entry.date, Entry.user_name)
-        )
-
-        entries = session.exec(stmt).all()
+        # Query entries for the week using raw SQL to handle missing time_period column gracefully
+        from sqlalchemy import text
+        is_postgres = "postgresql" in str(session.bind.url).lower() if hasattr(session.bind, 'url') else False
+        
+        if is_postgres:
+            # Check if time_period column exists
+            try:
+                result = session.execute(text("""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name = 'entry' AND column_name = 'time_period'
+                """))
+                time_period_exists = result.fetchone() is not None
+            except:
+                time_period_exists = False
+            
+            if time_period_exists:
+                # Use model query if column exists
+                stmt = (
+                    select(Entry)
+                    .where(
+                        Entry.date >= week_start,
+                        Entry.date <= end_date.strftime("%Y-%m-%d"),
+                    )
+                    .order_by(Entry.date, Entry.user_name)
+                )
+                entries = session.exec(stmt).all()
+            else:
+                # Use raw SQL to avoid time_period column
+                result = session.execute(text("""
+                    SELECT id, user_key, user_name, date, location, client, notes, created_at, updated_at
+                    FROM entry
+                    WHERE date >= :start_date AND date <= :end_date
+                    ORDER BY date, user_name
+                """), {"start_date": week_start, "end_date": end_date.strftime("%Y-%m-%d")})
+                rows = result.fetchall()
+                # Convert to Entry-like objects
+                entries = []
+                for row in rows:
+                    entry_dict = {
+                        "id": row[0],
+                        "user_key": row[1],
+                        "user_name": row[2],
+                        "date": row[3],
+                        "location": row[4],
+                        "time_period": None,  # Column doesn't exist yet
+                        "client": row[5],
+                        "notes": row[6],
+                        "created_at": row[7],
+                        "updated_at": row[8],
+                    }
+                    entries.append(type('Entry', (), entry_dict)())
+        else:
+            # SQLite - similar approach
+            try:
+                result = session.execute(text("PRAGMA table_info(entry)"))
+                columns = [row[1] for row in result.fetchall()]
+                time_period_exists = 'time_period' in columns
+            except:
+                time_period_exists = False
+            
+            if time_period_exists:
+                stmt = (
+                    select(Entry)
+                    .where(
+                        Entry.date >= week_start,
+                        Entry.date <= end_date.strftime("%Y-%m-%d"),
+                    )
+                    .order_by(Entry.date, Entry.user_name)
+                )
+                entries = session.exec(stmt).all()
+            else:
+                result = session.execute(text("""
+                    SELECT id, user_key, user_name, date, location, client, notes, created_at, updated_at
+                    FROM entry
+                    WHERE date >= :start_date AND date <= :end_date
+                    ORDER BY date, user_name
+                """), {"start_date": week_start, "end_date": end_date.strftime("%Y-%m-%d")})
+                rows = result.fetchall()
+                entries = []
+                for row in rows:
+                    entry_dict = {
+                        "id": row[0], "user_key": row[1], "user_name": row[2],
+                        "date": row[3], "location": row[4], "time_period": None,
+                        "client": row[5], "notes": row[6], "created_at": row[7], "updated_at": row[8],
+                    }
+                    entries.append(type('Entry', (), entry_dict)())
 
         # Convert to response format
+        # Normalize empty string back to None for API consistency
         summary_rows = [
             SummaryRow(
                 user_name=entry.user_name,
                 date=entry.date,
                 location=entry.location,
-                time_period=entry.time_period,
+                time_period=None if getattr(entry, 'time_period', None) == '' else getattr(entry, 'time_period', None),
                 client=entry.client,
                 notes=entry.notes,
             )
@@ -248,16 +433,43 @@ def get_entries(
     logger.info(f"Entries request - from: {date_from}, to: {date_to}")
 
     try:
-        stmt = select(Entry)
+        time_period_exists = check_time_period_column_exists()
+        
+        if time_period_exists:
+            # Use model query if column exists
+            stmt = select(Entry)
 
-        if date_from:
-            stmt = stmt.where(Entry.date >= date_from)
-        if date_to:
-            stmt = stmt.where(Entry.date <= date_to)
+            if date_from:
+                stmt = stmt.where(Entry.date >= date_from)
+            if date_to:
+                stmt = stmt.where(Entry.date <= date_to)
 
-        stmt = stmt.order_by(Entry.date, Entry.user_name)
-
-        entries = session.exec(stmt).all()
+            stmt = stmt.order_by(Entry.date, Entry.user_name)
+            entries = session.exec(stmt).all()
+        else:
+            # Use raw SQL if column doesn't exist
+            sql = "SELECT id, user_key, user_name, date, location, client, notes, created_at, updated_at FROM entry WHERE 1=1"
+            params = {}
+            if date_from:
+                sql += " AND date >= :date_from"
+                params["date_from"] = date_from
+            if date_to:
+                sql += " AND date <= :date_to"
+                params["date_to"] = date_to
+            sql += " ORDER BY date, user_name"
+            
+            result = session.execute(text(sql), params)
+            rows = result.fetchall()
+            # Convert to Entry-like objects
+            entries = []
+            for row in rows:
+                entry_dict = {
+                    "id": row[0], "user_key": row[1], "user_name": row[2],
+                    "date": row[3], "location": row[4], "time_period": None,
+                    "client": row[5], "notes": row[6],
+                    "created_at": row[7], "updated_at": row[8],
+                }
+                entries.append(type('Entry', (), entry_dict)())
 
         return [
             EntryResponse(
@@ -265,7 +477,7 @@ def get_entries(
                 user_name=entry.user_name,
                 date=entry.date,
                 location=entry.location,
-                time_period=entry.time_period,
+                time_period=None if getattr(entry, 'time_period', None) == '' else getattr(entry, 'time_period', None),
                 client=entry.client,
                 notes=entry.notes,
                 created_at=entry.created_at,
@@ -355,15 +567,34 @@ def get_users_for_week(
         end_date = start_date + timedelta(days=4)
 
         # Query entries for the week
-        stmt = (
-            select(Entry)
-            .where(
-                Entry.date >= week_start,
-                Entry.date <= end_date.strftime("%Y-%m-%d"),
+        time_period_exists = check_time_period_column_exists()
+        
+        if time_period_exists:
+            stmt = (
+                select(Entry)
+                .where(
+                    Entry.date >= week_start,
+                    Entry.date <= end_date.strftime("%Y-%m-%d"),
+                )
             )
-        )
-
-        entries = session.exec(stmt).all()
+            entries = session.exec(stmt).all()
+        else:
+            # Use raw SQL if column doesn't exist
+            result = session.execute(text("""
+                SELECT id, user_key, user_name, date, location, client, notes, created_at, updated_at
+                FROM entry
+                WHERE date >= :start_date AND date <= :end_date
+            """), {"start_date": week_start, "end_date": end_date.strftime("%Y-%m-%d")})
+            rows = result.fetchall()
+            entries = []
+            for row in rows:
+                entry_dict = {
+                    "id": row[0], "user_key": row[1], "user_name": row[2],
+                    "date": row[3], "location": row[4], "time_period": None,
+                    "client": row[5], "notes": row[6],
+                    "created_at": row[7], "updated_at": row[8],
+                }
+                entries.append(type('Entry', (), entry_dict)())
 
         # Get unique user names grouped by user_key (normalized)
         user_map = {}
@@ -411,28 +642,61 @@ def check_existing_entries(
         # Normalize user name to user_key
         user_key = user_name.strip().lower()
         
-        # Query using user_key (normalized, unique identifier)
-        user_entries = session.exec(
-            select(Entry)
-            .where(Entry.user_key == user_key)
-            .where(Entry.date >= week_start)
-            .where(Entry.date <= end_date.strftime("%Y-%m-%d"))
-        ).all()
+        # Check if time_period column exists
+        time_period_exists = check_time_period_column_exists()
         
-        return {
-            "exists": len(user_entries) > 0,
-            "count": len(user_entries),
-            "entries": [
-                {
-                    "date": e.date,
-                    "location": e.location,
-                    "time_period": e.time_period,
-                    "client": e.client,
-                    "notes": e.notes,
-                }
-                for e in user_entries
-            ]
-        }
+        if time_period_exists:
+            # Use model query if column exists
+            user_entries = session.exec(
+                select(Entry)
+                .where(Entry.user_key == user_key)
+                .where(Entry.date >= week_start)
+                .where(Entry.date <= end_date.strftime("%Y-%m-%d"))
+            ).all()
+            
+            return {
+                "exists": len(user_entries) > 0,
+                "count": len(user_entries),
+                "entries": [
+                    {
+                        "date": e.date,
+                        "location": e.location,
+                        "time_period": None if getattr(e, 'time_period', None) == '' else getattr(e, 'time_period', None),
+                        "client": e.client,
+                        "notes": e.notes,
+                    }
+                    for e in user_entries
+                ]
+            }
+        else:
+            # Use raw SQL if column doesn't exist yet
+            result = session.execute(text("""
+                SELECT date, location, client, notes
+                FROM entry
+                WHERE user_key = :user_key
+                AND date >= :start_date
+                AND date <= :end_date
+            """), {
+                "user_key": user_key,
+                "start_date": week_start,
+                "end_date": end_date.strftime("%Y-%m-%d")
+            })
+            rows = result.fetchall()
+            
+            return {
+                "exists": len(rows) > 0,
+                "count": len(rows),
+                "entries": [
+                    {
+                        "date": row[0],
+                        "location": row[1],
+                        "time_period": None,
+                        "client": row[2],
+                        "notes": row[3],
+                    }
+                    for row in rows
+                ]
+            }
     
     except ValueError as e:
         raise HTTPException(status_code=400, detail="Invalid date format")
@@ -551,8 +815,51 @@ def debug_database(session: Session = Depends(get_session)):
         elif "sqlite" in DATABASE_URL:
             db_info = DATABASE_URL.split("/")[-1]
         
+        # Check if time_period column exists
+        time_period_exists = False
+        try:
+            from sqlalchemy import text, inspect
+            inspector = inspect(engine)
+            columns = [col['name'] for col in inspector.get_columns('entry')]
+            time_period_exists = 'time_period' in columns
+        except Exception as col_e:
+            logger.warning(f"Could not check columns: {col_e}")
+        
+        # Check table structure
+        try:
+            from sqlalchemy import text
+            with engine.connect() as conn:
+                result = conn.execute(text("""
+                    SELECT column_name, data_type 
+                    FROM information_schema.columns 
+                    WHERE table_name = 'entry'
+                    ORDER BY ordinal_position
+                """))
+                table_columns = [{"name": row[0], "type": row[1]} for row in result.fetchall()]
+        except Exception:
+            table_columns = []
+        
         # Get total entry count
-        all_entries = session.exec(select(Entry)).all()
+        time_period_exists_check = check_time_period_column_exists()
+        if time_period_exists_check:
+            all_entries = session.exec(select(Entry)).all()
+        else:
+            # Use raw SQL if column doesn't exist
+            result = session.execute(text("""
+                SELECT id, user_key, user_name, date, location, client, notes, created_at, updated_at
+                FROM entry
+            """))
+            rows = result.fetchall()
+            all_entries = []
+            for row in rows:
+                entry_dict = {
+                    "id": row[0], "user_key": row[1], "user_name": row[2],
+                    "date": row[3], "location": row[4], "time_period": None,
+                    "client": row[5], "notes": row[6],
+                    "created_at": row[7], "updated_at": row[8],
+                }
+                all_entries.append(type('Entry', (), entry_dict)())
+        
         total_count = len(all_entries)
         
         # Get sample entries (last 10)
@@ -577,10 +884,26 @@ def debug_database(session: Session = Depends(get_session)):
             connection_ok = False
             logger.error(f"Connection test failed: {str(conn_e)}")
         
+        # Check if we can query time_period (will fail if column doesn't exist)
+        time_period_query_works = False
+        if time_period_exists:
+            try:
+                sample_with_time_period = session.exec(
+                    select(Entry).limit(1)
+                ).first()
+                if sample_with_time_period:
+                    _ = sample_with_time_period.time_period  # Try to access it
+                    time_period_query_works = True
+            except Exception:
+                time_period_query_works = False
+        
         return {
             "database_type": db_type,
             "database_info": db_info,
             "connection_ok": connection_ok,
+            "time_period_column_exists": time_period_exists,
+            "time_period_query_works": time_period_query_works,
+            "table_columns": table_columns,
             "total_entries": total_count,
             "unique_users": users,
             "date_range": {
@@ -593,6 +916,7 @@ def debug_database(session: Session = Depends(get_session)):
                     "user_name": e.user_name,
                     "date": e.date,
                     "location": e.location,
+                    "time_period": getattr(e, 'time_period', None),
                     "client": e.client,
                 }
                 for e in recent_entries
@@ -600,7 +924,12 @@ def debug_database(session: Session = Depends(get_session)):
         }
     except Exception as e:
         logger.error(f"Debug error: {str(e)}")
-        return {"error": str(e), "traceback": str(e.__class__.__name__)}
+        import traceback
+        return {
+            "error": str(e), 
+            "traceback": traceback.format_exc(),
+            "error_type": str(e.__class__.__name__)
+        }
 
 
 @app.get("/")

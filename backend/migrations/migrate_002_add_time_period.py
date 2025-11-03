@@ -30,11 +30,14 @@ def migrate(engine):
                 migrate_sqlite(conn)
             
             trans.commit()
-            logger.info("Migration 002 completed successfully")
+            logger.info("✅ Migration 002 completed successfully")
         except Exception as e:
             trans.rollback()
-            logger.error(f"Migration 002 failed: {str(e)}")
-            raise
+            logger.error(f"❌ Migration 002 failed: {str(e)}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            # Don't raise - allow app to start, but migration will need to be run manually
+            logger.warning("⚠️  App will start but time_period feature will not work until migration succeeds")
 
 
 def migrate_postgres(conn):
@@ -85,31 +88,54 @@ def migrate_postgres(conn):
     
     # Step 2: Drop old unique constraint/index - SAFE: existing data is preserved
     logger.info("Dropping old unique constraint...")
+    
+    # Drop index first (indexes are separate from constraints)
     try:
         conn.execute(text("DROP INDEX IF EXISTS uniq_entries_userkey_date"))
         logger.info("✅ Old index dropped")
     except Exception as e:
         logger.warning(f"Could not drop old index (might not exist): {e}")
     
+    # Drop constraint - PostgreSQL requires checking if it exists first
+    # Use a DO block to safely drop constraint if it exists
     try:
         conn.execute(text("""
-            ALTER TABLE entry DROP CONSTRAINT IF EXISTS uniq_entries_userkey_date
+            DO $$ 
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.table_constraints 
+                    WHERE table_name = 'entry' 
+                    AND constraint_name = 'uniq_entries_userkey_date'
+                ) THEN
+                    ALTER TABLE entry DROP CONSTRAINT uniq_entries_userkey_date;
+                END IF;
+            END $$;
         """))
-        logger.info("✅ Old constraint dropped")
+        logger.info("✅ Old constraint dropped (if it existed)")
     except Exception as e:
-        logger.warning(f"Could not drop old constraint (might not exist): {e}")
+        logger.warning(f"Could not drop old constraint: {e}")
     
     # Step 3: Create new unique constraint with time_period - SAFE: preserves existing entries
-    # Use COALESCE to treat NULL as empty string for uniqueness
-    # This ensures only one NULL (full day) entry per (user_key, date)
-    # All existing entries have time_period = NULL, so they'll still be unique per (user_key, date)
+    # Normalize existing NULL values to empty string, then create simple unique constraint
+    logger.info("Normalizing NULL time_period values to empty string...")
+    try:
+        conn.execute(text("UPDATE entry SET time_period = '' WHERE time_period IS NULL"))
+        logger.info("✅ Normalized existing NULL values")
+    except Exception as e:
+        logger.warning(f"Could not normalize NULL values (may not be necessary): {e}")
+    
     logger.info("Creating new unique constraint on (user_key, date, time_period)...")
-    logger.info("✅ Existing entries will remain unique (time_period = NULL is treated as empty string)")
-    conn.execute(text("""
-        CREATE UNIQUE INDEX IF NOT EXISTS uniq_entries_userkey_date_timeperiod 
-        ON entry (user_key, date, COALESCE(time_period, ''))
-    """))
-    logger.info("✅ New unique constraint created. All existing data preserved!")
+    try:
+        # Create a simple unique constraint (not functional, treats empty string as distinct from NULL)
+        # Since we normalized NULL to '', we can use a simple unique constraint
+        conn.execute(text("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uniq_entries_userkey_date_timeperiod 
+            ON entry (user_key, date, time_period)
+        """))
+        logger.info("✅ New unique constraint created. All existing data preserved!")
+    except Exception as e:
+        logger.error(f"Failed to create unique constraint: {e}")
+        raise
 
 
 def migrate_sqlite(conn):
@@ -151,20 +177,29 @@ def migrate_sqlite(conn):
             raise
         logger.info("time_period column already exists")
     
-    # Step 2: Drop old unique index
+    # Step 2: Normalize NULL values to empty string
+    logger.info("Normalizing NULL time_period values to empty string...")
+    try:
+        conn.execute(text("UPDATE entry SET time_period = '' WHERE time_period IS NULL"))
+        logger.info("✅ Normalized existing NULL values")
+    except Exception as e:
+        logger.warning(f"Could not normalize NULL values (may not be necessary): {e}")
+    
+    # Step 3: Drop old unique index
     logger.info("Dropping old unique index...")
     try:
         conn.execute(text("DROP INDEX IF EXISTS uniq_entries_userkey_date"))
     except Exception as e:
         logger.warning(f"Could not drop old index: {e}")
     
-    # Step 3: Create new unique index with time_period
-    # SQLite uses COALESCE for NULL handling in unique indexes
+    # Step 4: Create new unique index with time_period
+    # Since we normalized NULL to '', we can use a simple unique index
     logger.info("Creating new unique index on (user_key, date, time_period)...")
     conn.execute(text("""
         CREATE UNIQUE INDEX IF NOT EXISTS uniq_entries_userkey_date_timeperiod 
-        ON entry (user_key, date, COALESCE(time_period, ''))
+        ON entry (user_key, date, time_period)
     """))
+    logger.info("✅ New unique index created. All existing data preserved!")
 
 
 if __name__ == "__main__":
