@@ -159,8 +159,8 @@ function App() {
   const [userSearchTerm, setUserSearchTerm] = useState('')
   const [editSearchTerm, setEditSearchTerm] = useState('')
   
-  // Split working mode (morning/afternoon)
-  const [isSplitMode, setIsSplitMode] = useState(false)
+  // Split working mode (morning/afternoon) - per day (set of dates that are split)
+  const [splitDays, setSplitDays] = useState<Set<string>>(new Set())
   
   // Overwrite confirmation + undo
   const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false)
@@ -179,10 +179,12 @@ function App() {
     }
   }, [userName])
 
-  // Initialize week entries when week start changes or split mode changes
+  // Initialize week entries when week start changes
   useEffect(() => {
-    setWeekEntries(generateWeekEntries(weekStart, isSplitMode))
-  }, [weekStart, isSplitMode])
+    setWeekEntries(generateWeekEntries(weekStart, false))
+    // Reset split days when week changes
+    setSplitDays(new Set())
+  }, [weekStart])
 
   // Load client and team lists from public at runtime
   useEffect(() => {
@@ -283,8 +285,8 @@ function App() {
         const dayEntries = entriesByDate.get(entry.date)
         if (!dayEntries) return entry
         
-        // If we have full day entry and not in split mode, use it
-        if (dayEntries.full && !isSplitMode) {
+        // If we have full day entry and no split entries, use it
+        if (dayEntries.full && !dayEntries.morning && !dayEntries.afternoon) {
           const normalizedLocation = normalizeLocationFromApi(dayEntries.full.location) as WorkLocation
           let isCustomClient = false
           if (normalizedLocation === 'Client Office') {
@@ -301,8 +303,9 @@ function App() {
           }
         }
         
-        // If in split mode or we have morning/afternoon entries
-        if (isSplitMode || dayEntries.morning || dayEntries.afternoon) {
+        // If we have morning/afternoon entries, mark this day as split
+        if (dayEntries.morning || dayEntries.afternoon) {
+          setSplitDays(prev => new Set(prev).add(entry.date))
           const result = { ...entry }
           
           if (dayEntries.morning) {
@@ -317,6 +320,12 @@ function App() {
             } else {
               result.morningIsCustomClient = false
             }
+          } else {
+            // Initialize morning fields if afternoon exists but morning doesn't
+            result.morningLocation = 'Neal Street' as WorkLocation
+            result.morningClient = ''
+            result.morningNotes = ''
+            result.morningIsCustomClient = false
           }
           
           if (dayEntries.afternoon) {
@@ -331,11 +340,12 @@ function App() {
             } else {
               result.afternoonIsCustomClient = false
             }
-          }
-          
-          // If we have split entries but weren't in split mode, enable it
-          if (!isSplitMode && (dayEntries.morning || dayEntries.afternoon)) {
-            setIsSplitMode(true)
+          } else {
+            // Initialize afternoon fields if morning exists but afternoon doesn't
+            result.afternoonLocation = 'Neal Street' as WorkLocation
+            result.afternoonClient = ''
+            result.afternoonNotes = ''
+            result.afternoonIsCustomClient = false
           }
           
           return result
@@ -399,6 +409,8 @@ function App() {
     setWeekStart(getMondayOfWeek(d))
   }
 
+  const dateInputRef = useRef<HTMLInputElement | null>(null)
+
   const openNativeDatePicker = () => {
     const el = dateInputRef.current
     if (!el) return
@@ -413,7 +425,10 @@ function App() {
 
   const handleLocationChange = (index: number, location: WorkLocation, period?: 'morning' | 'afternoon') => {
     const newEntries = [...weekEntries]
-    if (isSplitMode && period) {
+    const entry = newEntries[index]
+    const isSplit = splitDays.has(entry.date)
+    
+    if (isSplit && period) {
       if (period === 'morning') {
         newEntries[index].morningLocation = location
         if (location !== 'Client Office' && location !== 'Other') {
@@ -455,7 +470,10 @@ function App() {
 
   const handleClientChange = (index: number, client: string, period?: 'morning' | 'afternoon') => {
     const newEntries = [...weekEntries]
-    if (isSplitMode && period) {
+    const entry = newEntries[index]
+    const isSplit = splitDays.has(entry.date)
+    
+    if (isSplit && period) {
       if (period === 'morning') {
         newEntries[index].morningClient = client
       } else {
@@ -469,7 +487,10 @@ function App() {
 
   const handleClientTypeChange = (index: number, clientType: string, period?: 'morning' | 'afternoon') => {
     const newEntries = [...weekEntries]
-    if (isSplitMode && period) {
+    const entry = newEntries[index]
+    const isSplit = splitDays.has(entry.date)
+    
+    if (isSplit && period) {
       if (period === 'morning') {
         if (clientType === 'Other') {
           newEntries[index].morningIsCustomClient = true
@@ -501,7 +522,10 @@ function App() {
 
   const handleNotesChange = (index: number, notes: string, period?: 'morning' | 'afternoon') => {
     const newEntries = [...weekEntries]
-    if (isSplitMode && period) {
+    const entry = newEntries[index]
+    const isSplit = splitDays.has(entry.date)
+    
+    if (isSplit && period) {
       if (period === 'morning') {
         newEntries[index].morningNotes = notes
       } else {
@@ -540,8 +564,10 @@ function App() {
       return 'Please enter your name'
     }
 
-    if (isSplitMode) {
-      for (const entry of weekEntries) {
+    for (const entry of weekEntries) {
+      const isSplit = splitDays.has(entry.date)
+      
+      if (isSplit) {
         // Validate morning entry if location is set
         if (entry.morningLocation) {
           if (entry.morningLocation === 'Client Office') {
@@ -574,9 +600,8 @@ function App() {
             }
           }
         }
-      }
-    } else {
-      for (const entry of weekEntries) {
+      } else {
+        // Validate full day entry
         if (entry.location === 'Client Office') {
           // If "Other" was selected, isCustomClient=true and client must be non-empty
           if (entry.isCustomClient && !entry.client.trim()) {
@@ -631,7 +656,9 @@ function App() {
       const entries: Entry[] = []
       
       for (const entry of weekEntries) {
-        if (isSplitMode && (entry.morningLocation || entry.afternoonLocation)) {
+        const isSplit = splitDays.has(entry.date)
+        
+        if (isSplit && (entry.morningLocation || entry.afternoonLocation)) {
           // Add morning entry if location is set
           if (entry.morningLocation) {
             entries.push({
@@ -739,8 +766,6 @@ function App() {
 
   // Define location order for consistent display
   const locationOrder = ['Neal Street', 'WFH', 'Client Office', 'Working From Abroad', 'Holiday', 'Other']
-
-  const dateInputRef = useRef<HTMLInputElement | null>(null)
 
   return (
     <div className="container">
@@ -1001,17 +1026,6 @@ function App() {
             >
               <span style={{ fontSize: '18px', marginRight: '6px' }}>🏠</span> All WFH
             </button>
-            <button
-              className={`preset-btn ${isSplitMode ? 'active' : ''}`}
-              onClick={() => setIsSplitMode(!isSplitMode)}
-              type="button"
-              style={{
-                borderColor: isSplitMode ? '#00ff00' : undefined,
-                backgroundColor: isSplitMode ? '#003300' : undefined,
-              }}
-            >
-              <span style={{ fontSize: '18px', marginRight: '6px' }}>⏰</span> Split Working
-            </button>
           </div>
 
           <table className="week-table">
@@ -1019,26 +1033,56 @@ function App() {
               <tr>
                 <th>Date</th>
                 <th>Day</th>
-                {isSplitMode ? (
-                  <>
-                    <th>Morning Location</th>
-                    <th>Morning Client</th>
-                    <th>Morning Notes</th>
-                    <th>Afternoon Location</th>
-                    <th>Afternoon Client</th>
-                    <th>Afternoon Notes</th>
-                  </>
-                ) : (
-                  <>
-                    <th>Location</th>
-                    <th>Client</th>
-                    <th>Notes</th>
-                  </>
-                )}
+                <th>Location</th>
+                <th>Client</th>
+                <th>Notes</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
               {weekEntries.map((entry, index) => {
+                const isSplit = splitDays.has(entry.date)
+                
+                const toggleSplit = () => {
+                  setSplitDays(prev => {
+                    const newSet = new Set(prev)
+                    if (newSet.has(entry.date)) {
+                      newSet.delete(entry.date)
+                      // Clear split fields when unsplitting
+                      const newEntries = [...weekEntries]
+                      newEntries[index] = {
+                        ...newEntries[index],
+                        morningLocation: undefined,
+                        afternoonLocation: undefined,
+                        morningClient: undefined,
+                        afternoonClient: undefined,
+                        morningNotes: undefined,
+                        afternoonNotes: undefined,
+                        morningIsCustomClient: undefined,
+                        afternoonIsCustomClient: undefined,
+                      }
+                      setWeekEntries(newEntries)
+                    } else {
+                      newSet.add(entry.date)
+                      // Initialize split fields when splitting
+                      const newEntries = [...weekEntries]
+                      const current = newEntries[index]
+                      newEntries[index] = {
+                        ...current,
+                        morningLocation: current.location || 'Neal Street' as WorkLocation,
+                        afternoonLocation: current.location || 'Neal Street' as WorkLocation,
+                        morningClient: current.client || '',
+                        afternoonClient: current.client || '',
+                        morningNotes: current.notes || '',
+                        afternoonNotes: current.notes || '',
+                        morningIsCustomClient: current.isCustomClient || false,
+                        afternoonIsCustomClient: current.isCustomClient || false,
+                      }
+                      setWeekEntries(newEntries)
+                    }
+                    return newSet
+                  })
+                }
                 const renderLocationSelect = (location: WorkLocation | undefined, onChange: (loc: WorkLocation) => void) => (
                   <select
                     value={location || 'Neal Street'}
@@ -1113,54 +1157,75 @@ function App() {
                   return <span style={{ color: '#666', fontStyle: 'italic' }}>N/A</span>
                 }
                 
-                if (isSplitMode) {
+                if (isSplit) {
                   return (
-                    <tr key={entry.date}>
-                      <td>{entry.date}</td>
-                      <td>{entry.dayName}</td>
-                      <td>
-                        <div style={{ fontWeight: '700', marginBottom: '4px', color: '#ffff00' }}>Morning</div>
-                        {renderLocationSelect(entry.morningLocation, (loc) => handleLocationChange(index, loc, 'morning'))}
-                      </td>
-                      <td>
-                        {renderClientInput(
-                          entry.morningLocation,
-                          entry.morningClient,
-                          entry.morningIsCustomClient,
-                          (client) => handleClientChange(index, client, 'morning'),
-                          (clientType) => handleClientTypeChange(index, clientType, 'morning')
-                        )}
-                      </td>
-                      <td>
-                        <input
-                          type="text"
-                          value={entry.morningNotes || ''}
-                          onChange={(e) => handleNotesChange(index, e.target.value, 'morning')}
-                          placeholder="Optional notes"
-                        />
-                      </td>
-                      <td>
-                        <div style={{ fontWeight: '700', marginBottom: '4px', color: '#ffff00' }}>Afternoon</div>
-                        {renderLocationSelect(entry.afternoonLocation, (loc) => handleLocationChange(index, loc, 'afternoon'))}
-                      </td>
-                      <td>
-                        {renderClientInput(
-                          entry.afternoonLocation,
-                          entry.afternoonClient,
-                          entry.afternoonIsCustomClient,
-                          (client) => handleClientChange(index, client, 'afternoon'),
-                          (clientType) => handleClientTypeChange(index, clientType, 'afternoon')
-                        )}
-                      </td>
-                      <td>
-                        <input
-                          type="text"
-                          value={entry.afternoonNotes || ''}
-                          onChange={(e) => handleNotesChange(index, e.target.value, 'afternoon')}
-                          placeholder="Optional notes"
-                        />
-                      </td>
-                    </tr>
+                    <React.Fragment key={entry.date}>
+                      <tr>
+                        <td rowSpan={2} style={{ verticalAlign: 'top', paddingTop: '16px' }}>{entry.date}</td>
+                        <td rowSpan={2} style={{ verticalAlign: 'top', paddingTop: '16px' }}>{entry.dayName}</td>
+                        <td>
+                          <div style={{ fontWeight: '700', marginBottom: '4px', color: '#ffff00', fontSize: '12px' }}>Morning</div>
+                          {renderLocationSelect(entry.morningLocation, (loc) => handleLocationChange(index, loc, 'morning'))}
+                        </td>
+                        <td>
+                          {renderClientInput(
+                            entry.morningLocation,
+                            entry.morningClient,
+                            entry.morningIsCustomClient,
+                            (client) => handleClientChange(index, client, 'morning'),
+                            (clientType) => handleClientTypeChange(index, clientType, 'morning')
+                          )}
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            value={entry.morningNotes || ''}
+                            onChange={(e) => handleNotesChange(index, e.target.value, 'morning')}
+                            placeholder="Optional notes"
+                            style={{ width: '100%' }}
+                          />
+                        </td>
+                        <td rowSpan={2} style={{ verticalAlign: 'top', paddingTop: '16px' }}>
+                          <button
+                            className="preset-btn"
+                            onClick={toggleSplit}
+                            type="button"
+                            style={{
+                              fontSize: '11px',
+                              padding: '6px 10px',
+                              borderColor: '#00ff00',
+                              backgroundColor: '#003300',
+                            }}
+                          >
+                            Unsplit
+                          </button>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td>
+                          <div style={{ fontWeight: '700', marginBottom: '4px', color: '#ffff00', fontSize: '12px' }}>Afternoon</div>
+                          {renderLocationSelect(entry.afternoonLocation, (loc) => handleLocationChange(index, loc, 'afternoon'))}
+                        </td>
+                        <td>
+                          {renderClientInput(
+                            entry.afternoonLocation,
+                            entry.afternoonClient,
+                            entry.afternoonIsCustomClient,
+                            (client) => handleClientChange(index, client, 'afternoon'),
+                            (clientType) => handleClientTypeChange(index, clientType, 'afternoon')
+                          )}
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            value={entry.afternoonNotes || ''}
+                            onChange={(e) => handleNotesChange(index, e.target.value, 'afternoon')}
+                            placeholder="Optional notes"
+                            style={{ width: '100%' }}
+                          />
+                        </td>
+                      </tr>
+                    </React.Fragment>
                   )
                 }
                 
@@ -1187,6 +1252,19 @@ function App() {
                         onChange={(e) => handleNotesChange(index, e.target.value)}
                         placeholder="Optional notes"
                       />
+                    </td>
+                    <td>
+                      <button
+                        className="preset-btn"
+                        onClick={toggleSplit}
+                        type="button"
+                        style={{
+                          fontSize: '11px',
+                          padding: '6px 10px',
+                        }}
+                      >
+                        <span style={{ fontSize: '14px', marginRight: '4px' }}>⏰</span> Split
+                      </button>
                     </td>
                   </tr>
                 )
