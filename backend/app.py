@@ -170,6 +170,33 @@ def bulk_upsert_entries(
         except Exception:
             pass  # Default to SQLite pattern
         
+        # If time_period exists, check for dates that have split entries and delete old full-day entries
+        if time_period_exists:
+            # Collect dates that have split entries (time_period is not None/empty)
+            split_dates = set()
+            for entry_data in request.entries:
+                if entry_data.time_period and entry_data.time_period.strip():
+                    split_dates.add(entry_data.date)
+            
+            # Delete old full-day entries (time_period='' or NULL) for dates that now have split entries
+            if split_dates:
+                logger.info(f"Deleting old full-day entries for split dates: {split_dates}")
+                # Use IN clause for both PostgreSQL and SQLite
+                placeholders = ','.join([':date' + str(i) for i in range(len(split_dates))])
+                params = {"user_key": user_key}
+                for i, date in enumerate(split_dates):
+                    params[f"date{i}"] = date
+                session.execute(
+                    text(f"""
+                        DELETE FROM entry 
+                        WHERE user_key = :user_key 
+                        AND date IN ({placeholders})
+                        AND (time_period = '' OR time_period IS NULL)
+                    """),
+                    params
+                )
+                session.commit()  # Commit the deletions before inserting new entries
+        
         for entry_data in request.entries:
             # Validate entry
             if not entry_data.date:
