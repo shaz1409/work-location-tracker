@@ -424,17 +424,23 @@ body {
 
 .toast {
   position: fixed;
-  top: 20px;
-  right: 20px;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   background: #000000;
   color: #00ff00;
-  padding: 12px 20px;
-  border-radius: 8px;
-  box-shadow: 0 0 20px #00ff00;
-  z-index: 1000;
-  animation: slideIn 0.3s ease-out;
-  border: 2px solid #00ff00;
+  padding: 24px 40px;
+  border-radius: 12px;
+  box-shadow: 
+    0 0 30px #00ff00,
+    0 0 60px rgba(0, 255, 0, 0.5);
+  z-index: 10000;
+  animation: popupFadeIn 0.3s ease-out;
+  border: 3px solid #00ff00;
   font-weight: 700;
+  font-size: 24px;
+  text-align: center;
+  min-width: 200px;
 }
 
 @keyframes slideIn {
@@ -444,6 +450,17 @@ body {
   }
   to {
     transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes popupFadeIn {
+  from {
+    transform: translate(-50%, -50%) scale(0.8);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, -50%) scale(1);
     opacity: 1;
   }
 }

@@ -722,9 +722,10 @@ function App() {
       }
 
       await saveWeek(request)
-      setToast(isEditMode ? 'Week updated successfully!' : 'Week saved successfully!')
+      setToast('Week Saved!')
       setTimeout(() => setToast(''), 3000)
       setIsEditMode(false)
+      // Navigate to Who's where tab
       setViewMode('dashboard')
 
       if (existingEntriesCount > 0 && backup.length > 0) {
