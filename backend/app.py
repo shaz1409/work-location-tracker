@@ -104,8 +104,10 @@ async def lifespan(app: FastAPI):
             
             # Run migration 002: Add time_period
             try:
+                logger.info("Attempting to run migration 002 (time_period)...")
                 from migrations.migrate_002_add_time_period import migrate as migrate_002
                 migrate_002(engine)
+                logger.info("Migration 002 completed (check logs above for details)")
             except ImportError as e:
                 logger.debug(f"Migration 002 module not found: {e}")
             except Exception as e:
@@ -607,19 +609,25 @@ def get_users_for_week(
                 WHERE date >= :start_date AND date <= :end_date
             """), {"start_date": week_start, "end_date": end_date.strftime("%Y-%m-%d")})
             rows = result.fetchall()
-            entries = [create_entry_from_row(row) for row in rows]
+            entries = [create_entry_from_row(row, include_time_period=False) for row in rows]
 
         # Get unique user names grouped by user_key (normalized)
         user_map = {}
         for entry in entries:
             if entry.user_key not in user_map:
                 user_map[entry.user_key] = entry.user_name
-                if entry.updated_at:
+                if hasattr(entry, 'updated_at') and entry.updated_at:
                     user_map[entry.user_key + "_ts"] = entry.updated_at
             # Prefer latest user_name if updated_at is more recent
-            elif entry.updated_at:
+            elif hasattr(entry, 'updated_at') and entry.updated_at:
                 existing_ts = user_map.get(entry.user_key + "_ts")
-                if not existing_ts or entry.updated_at > existing_ts:
+                if existing_ts and isinstance(existing_ts, type(entry.updated_at)):
+                    # Only compare if both are the same type
+                    if entry.updated_at > existing_ts:
+                        user_map[entry.user_key] = entry.user_name
+                        user_map[entry.user_key + "_ts"] = entry.updated_at
+                elif not existing_ts:
+                    # If no existing timestamp, use this one
                     user_map[entry.user_key] = entry.user_name
                     user_map[entry.user_key + "_ts"] = entry.updated_at
         
