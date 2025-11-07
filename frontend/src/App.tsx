@@ -213,6 +213,20 @@ function App() {
     }
   }, [viewMode, weekStart])
 
+  // Scroll to today's section when dashboard opens and entries are loaded
+  useEffect(() => {
+    if (viewMode === 'dashboard' && summaryEntries.length > 0 && todaySectionRef.current) {
+      // Small delay to ensure DOM is fully rendered
+      setTimeout(() => {
+        todaySectionRef.current?.scrollIntoView({ 
+          behavior: 'smooth', 
+          block: 'start',
+          inline: 'nearest'
+        })
+      }, 100)
+    }
+  }, [viewMode, summaryEntries.length])
+
   // Check for existing entries when user name or week changes
   useEffect(() => {
     const checkForExisting = async () => {
@@ -414,6 +428,7 @@ function App() {
   }
 
   const dateInputRef = useRef<HTMLInputElement | null>(null)
+  const todaySectionRef = useRef<HTMLDivElement | null>(null)
 
   const openNativeDatePicker = () => {
     const el = dateInputRef.current
@@ -1330,7 +1345,11 @@ function App() {
                   const isToday = date === todayStr
                   
                   return (
-                  <div key={date} className={`day-section ${isToday ? 'today' : ''}`}>
+                  <div 
+                    key={date} 
+                    className={`day-section ${isToday ? 'today' : ''}`}
+                    ref={isToday ? todaySectionRef : null}
+                  >
                     <h3>
                       {new Date(date).toLocaleDateString('en-US', {
                         weekday: 'long',
