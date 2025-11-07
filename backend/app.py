@@ -154,6 +154,7 @@ def bulk_upsert_entries(
         
         # Check if time_period column exists
         time_period_exists = check_time_period_column_exists()
+        logger.info(f"time_period column exists: {time_period_exists}")
         
         # Check if PostgreSQL (for ON CONFLICT) or SQLite (use merge pattern)
         is_postgres = False
@@ -180,6 +181,7 @@ def bulk_upsert_entries(
                     # PostgreSQL: Use INSERT ... ON CONFLICT DO UPDATE with time_period
                     # Normalize None to empty string for consistency with migration
                     time_period_value = entry_data.time_period if entry_data.time_period is not None else ''
+                    logger.info(f"Saving entry: date={entry_data.date}, location={entry_data.location}, time_period={time_period_value}")
                     result = session.execute(
                         text("""
                             INSERT INTO entry (user_key, user_name, date, location, time_period, client, notes, created_at, updated_at)
@@ -423,6 +425,10 @@ def get_week_summary(
         ]
 
         logger.info(f"Found {len(summary_rows)} entries for week {week_start}")
+        # Log a few entries with time_period for debugging
+        for row in summary_rows[:5]:
+            if row.time_period:
+                logger.info(f"Entry: {row.user_name} on {row.date} at {row.location} ({row.time_period})")
         return WeekSummaryResponse(entries=summary_rows)
 
     except ValueError as e:
