@@ -89,31 +89,35 @@ def migrate_postgres(conn):
     # Step 2: Drop old unique constraint/index - SAFE: existing data is preserved
     logger.info("Dropping old unique constraint...")
     
-    # Drop index first (indexes are separate from constraints)
-    try:
-        conn.execute(text("DROP INDEX IF EXISTS uniq_entries_userkey_date"))
-        logger.info("✅ Old index dropped")
-    except Exception as e:
-        logger.warning(f"Could not drop old index (might not exist): {e}")
+    # Check if constraint exists first, then drop it directly
+    # This avoids transaction errors from trying to drop non-existent objects
+    result = conn.execute(text("""
+        SELECT constraint_name 
+        FROM information_schema.table_constraints 
+        WHERE table_name = 'entry' 
+        AND constraint_name = 'uniq_entries_userkey_date'
+    """))
+    constraint_exists = result.fetchone() is not None
     
-    # Drop constraint - PostgreSQL requires checking if it exists first
-    # Use a DO block to safely drop constraint if it exists
-    try:
-        conn.execute(text("""
-            DO $$ 
-            BEGIN
-                IF EXISTS (
-                    SELECT 1 FROM information_schema.table_constraints 
-                    WHERE table_name = 'entry' 
-                    AND constraint_name = 'uniq_entries_userkey_date'
-                ) THEN
-                    ALTER TABLE entry DROP CONSTRAINT uniq_entries_userkey_date;
-                END IF;
-            END $$;
-        """))
-        logger.info("✅ Old constraint dropped (if it existed)")
-    except Exception as e:
-        logger.warning(f"Could not drop old constraint: {e}")
+    if constraint_exists:
+        try:
+            conn.execute(text("ALTER TABLE entry DROP CONSTRAINT uniq_entries_userkey_date"))
+            logger.info("✅ Old constraint dropped")
+        except Exception as e:
+            logger.warning(f"Could not drop old constraint: {e}")
+            # Try dropping as index if constraint drop failed
+            try:
+                conn.execute(text("DROP INDEX IF EXISTS uniq_entries_userkey_date"))
+                logger.info("✅ Old index dropped instead")
+            except Exception as e2:
+                logger.warning(f"Could not drop old index either: {e2}")
+    else:
+        # Constraint doesn't exist, try dropping index
+        try:
+            conn.execute(text("DROP INDEX IF EXISTS uniq_entries_userkey_date"))
+            logger.info("✅ Old index dropped (constraint didn't exist)")
+        except Exception as e:
+            logger.info(f"Old constraint/index doesn't exist (this is fine): {e}")
     
     # Step 3: Create new unique constraint with time_period - SAFE: preserves existing entries
     # Normalize existing NULL values to empty string, then create simple unique constraint
