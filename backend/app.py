@@ -170,18 +170,23 @@ def bulk_upsert_entries(
         except Exception:
             pass  # Default to SQLite pattern
         
-        # If time_period exists, check for dates that have split entries and delete old full-day entries
+        # If time_period exists, handle overwriting between split and full-day entries
         if time_period_exists:
             # Collect dates that have split entries (time_period is not None/empty)
             split_dates = set()
+            # Collect dates that have full-day entries (time_period is None/empty)
+            full_day_dates = set()
+            
             for entry_data in request.entries:
                 if entry_data.time_period and entry_data.time_period.strip():
                     split_dates.add(entry_data.date)
+                else:
+                    # time_period is None or empty string - this is a full-day entry
+                    full_day_dates.add(entry_data.date)
             
-            # Delete old full-day entries (time_period='' or NULL) for dates that now have split entries
+            # Delete old full-day entries for dates that now have split entries
             if split_dates:
                 logger.info(f"Deleting old full-day entries for split dates: {split_dates}")
-                # Use IN clause for both PostgreSQL and SQLite
                 placeholders = ','.join([':date' + str(i) for i in range(len(split_dates))])
                 params = {"user_key": user_key}
                 for i, date in enumerate(split_dates):
@@ -195,7 +200,27 @@ def bulk_upsert_entries(
                     """),
                     params
                 )
-                session.commit()  # Commit the deletions before inserting new entries
+            
+            # Delete old split entries (Morning/Afternoon) for dates that now have full-day entries
+            if full_day_dates:
+                logger.info(f"Deleting old split entries for full-day dates: {full_day_dates}")
+                placeholders = ','.join([':date' + str(i) for i in range(len(full_day_dates))])
+                params = {"user_key": user_key}
+                for i, date in enumerate(full_day_dates):
+                    params[f"date{i}"] = date
+                session.execute(
+                    text(f"""
+                        DELETE FROM entry 
+                        WHERE user_key = :user_key 
+                        AND date IN ({placeholders})
+                        AND (time_period != '' AND time_period IS NOT NULL)
+                    """),
+                    params
+                )
+            
+            # Commit deletions before inserting new entries
+            if split_dates or full_day_dates:
+                session.commit()
         
         for entry_data in request.entries:
             # Validate entry
