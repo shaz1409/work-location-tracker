@@ -409,6 +409,10 @@ function App() {
     setWeekStart(getMondayOfWeek(d))
   }
 
+  const goToThisWeek = () => {
+    setWeekStart(getMondayOfWeek(new Date()))
+  }
+
   const dateInputRef = useRef<HTMLInputElement | null>(null)
 
   const openNativeDatePicker = () => {
@@ -842,6 +846,18 @@ function App() {
           </button>
 
           <button className="preset-btn" type="button" onClick={goToNextWeek}>Next {'>'}</button>
+          
+          <button 
+            className="preset-btn" 
+            type="button" 
+            onClick={goToThisWeek}
+            style={{ 
+              marginLeft: '8px',
+              fontWeight: 700 
+            }}
+          >
+            📍 This Week
+          </button>
         </div>
 
       </div>
@@ -1307,8 +1323,14 @@ function App() {
               {/* Regular by location view */}
               {Object.keys(groupedEntries)
                 .sort()
-                .map((date) => (
-                  <div key={date} className="day-section">
+                .map((date) => {
+                  // Check if this date is today
+                  const today = new Date()
+                  const todayStr = today.toISOString().split('T')[0]
+                  const isToday = date === todayStr
+                  
+                  return (
+                  <div key={date} className={`day-section ${isToday ? 'today' : ''}`}>
                     <h3>
                       {new Date(date).toLocaleDateString('en-US', {
                         weekday: 'long',
@@ -1479,7 +1501,8 @@ function App() {
                       )
                     })()}
                   </div>
-                ))}
+                  )
+                })}
             </>
           )}
         </div>
