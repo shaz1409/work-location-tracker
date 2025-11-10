@@ -1,15 +1,25 @@
 {
   "clients": [
-    "FT",
+    "Bey Medias",
+    "Experian",
     "FSInsight",
+    "FT",
+    "Future Publishing",
+    "Harmsworth Media",
+    "Hearst Mags",
+    "IAD",
+    "Indy",
+    "JWP",
+    "Mail",
+    "Monocle",
     "MyProtein",
-    "Future Publishing","Mail","The Independent",
-    "Monocle","Hearst Mags",
-    "PEI","Harmsworth Media",
-    "Experian","Stowe","Bey Medias","JWP",
-    "Unherd + Spectator",
-    "Myvitamins","The Sun",
-    "NEJM","IAD", "OQS", "Indy"
+    "Myvitamins",
+    "NEJM",
+    "OQS",
+    "PEI",
+    "Stowe",
+    "The Independent",
+    "The Sun",
+    "Unherd + Spectator"
   ]
 }
-
