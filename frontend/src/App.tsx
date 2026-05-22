@@ -19,7 +19,6 @@ function getDayName(date: Date): string {
   return date.toLocaleDateString('en-US', { weekday: 'long' })
 }
 
-
 function formatWeekRangeLabel(weekStart: Date): string {
   const start = new Date(weekStart)
   const end = new Date(weekStart)
@@ -27,6 +26,16 @@ function formatWeekRangeLabel(weekStart: Date): string {
   const startStr = start.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
   const endStr = end.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
   return `${startStr} → ${endStr}`
+}
+
+function formatFriendlyDate(dateStr: string): string {
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  const [, month, day] = dateStr.split('-').map(Number)
+  return `${day} ${months[month - 1]}`
+}
+
+function formatWeekHeading(weekStart: Date): string {
+  return weekStart.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
 }
 
 // Location normalization helpers to be compatible with both old and new APIs
@@ -92,7 +101,7 @@ function groupEntriesByDateAndLocation(entries: SummaryRow[]): {
         groups[entry.date] = {}
       }
       // Create location key with time period if present
-      const locationKey = entry.time_period 
+      const locationKey = entry.time_period
         ? `${entry.location} (${entry.time_period})`
         : entry.location
       if (!groups[entry.date][locationKey]) {
@@ -105,21 +114,17 @@ function groupEntriesByDateAndLocation(entries: SummaryRow[]): {
   )
 }
 
-// Unused but kept for future use
-// function groupEntriesByDate(entries: SummaryRow[]): {
-//   [date: string]: SummaryRow[]
-// } {
-//   return entries.reduce(
-//     (groups, entry) => {
-//       if (!groups[entry.date]) {
-//         groups[entry.date] = []
-//       }
-//       groups[entry.date].push(entry)
-//       return groups
-//     },
-//     {} as { [date: string]: SummaryRow[] }
-//   )
-// }
+function getLocationAccentColor(location: string): string {
+  switch (location) {
+    case 'Neal Street': return '#39ff14'
+    case 'WFH': return '#00e5ff'
+    case 'Client Office': return '#ffd600'
+    case 'Holiday': return '#ff00ff'
+    case 'Working From Abroad': return '#bb86fc'
+    case 'Other': return '#ff7043'
+    default: return '#555'
+  }
+}
 
 function getLocationBadgeClass(location: string): string {
   switch (location.toLowerCase()) {
@@ -158,16 +163,18 @@ function App() {
   const [showUserDropdown, setShowUserDropdown] = useState(false)
   const [userSearchTerm, setUserSearchTerm] = useState('')
   const [editSearchTerm, setEditSearchTerm] = useState('')
-  
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768)
+  const [showReminderBanner, setShowReminderBanner] = useState(false)
+
   // Split working mode (morning/afternoon) - per day (set of dates that are split)
   const [splitDays, setSplitDays] = useState<Set<string>>(new Set())
-  
+
   // Overwrite confirmation + undo
   const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false)
   const [isOverwriteConfirmed, setIsOverwriteConfirmed] = useState(false)
   const [backupBeforeSave, setBackupBeforeSave] = useState<Array<{date: string; location: string; client?: string; notes?: string}>>([])
   const [showUndoBar, setShowUndoBar] = useState(false)
-  
+
   // Runtime-loaded config
   const [allUsers, setAllUsers] = useState<string[]>([])
   const [clientOptions, setClientOptions] = useState<string[]>([])
@@ -218,8 +225,8 @@ function App() {
     if (viewMode === 'dashboard' && summaryEntries.length > 0 && todaySectionRef.current) {
       // Small delay to ensure DOM is fully rendered
       setTimeout(() => {
-        todaySectionRef.current?.scrollIntoView({ 
-          behavior: 'smooth', 
+        todaySectionRef.current?.scrollIntoView({
+          behavior: 'smooth',
           block: 'start',
           inline: 'nearest'
         })
@@ -251,6 +258,25 @@ function App() {
     }
   }, [viewMode, weekStart])
 
+  // Mobile detection
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768)
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
+
+  // Monday reminder: show banner if it's Monday and user hasn't submitted for current week
+  useEffect(() => {
+    const today = new Date()
+    const isMonday = today.getDay() === 1
+    const isCurrentWeek = formatDate(weekStart) === formatDate(getMondayOfWeek(new Date()))
+    if (isMonday && isCurrentWeek && existingEntriesCount === 0) {
+      setShowReminderBanner(true)
+    } else {
+      setShowReminderBanner(false)
+    }
+  }, [existingEntriesCount, weekStart])
+
   const loadUserList = async () => {
     try {
       setLoading(true)
@@ -275,10 +301,10 @@ function App() {
     try {
       setLoading(true)
       const existingEntries = await getUserEntriesForWeek(user, week)
-      
+
       // Group entries by date and time_period
       const entriesByDate = new Map<string, { morning?: ExistingEntry, afternoon?: ExistingEntry, full?: ExistingEntry }>()
-      
+
       for (const entry of existingEntries) {
         const date = entry.date
         if (!entriesByDate.has(date)) {
@@ -293,12 +319,12 @@ function App() {
           dayEntries.full = entry
         }
       }
-      
+
       // Update week entries with existing data
       const updatedEntries = weekEntries.map(entry => {
         const dayEntries = entriesByDate.get(entry.date)
         if (!dayEntries) return entry
-        
+
         // If we have full day entry and no split entries, use it
         if (dayEntries.full && !dayEntries.morning && !dayEntries.afternoon) {
           const normalizedLocation = normalizeLocationFromApi(dayEntries.full.location) as WorkLocation
@@ -316,12 +342,12 @@ function App() {
             isCustomClient: isCustomClient
           }
         }
-        
+
         // If we have morning/afternoon entries, mark this day as split
         if (dayEntries.morning || dayEntries.afternoon) {
           setSplitDays(prev => new Set(prev).add(entry.date))
           const result = { ...entry }
-          
+
           if (dayEntries.morning) {
             const normalizedLocation = normalizeLocationFromApi(dayEntries.morning.location) as WorkLocation
             result.morningLocation = normalizedLocation
@@ -341,7 +367,7 @@ function App() {
             result.morningNotes = ''
             result.morningIsCustomClient = false
           }
-          
+
           if (dayEntries.afternoon) {
             const normalizedLocation = normalizeLocationFromApi(dayEntries.afternoon.location) as WorkLocation
             result.afternoonLocation = normalizedLocation
@@ -361,13 +387,13 @@ function App() {
             result.afternoonNotes = ''
             result.afternoonIsCustomClient = false
           }
-          
+
           return result
         }
-        
+
         return entry
       })
-      
+
       setWeekEntries(updatedEntries)
     } catch (err) {
       setError('Failed to load existing entries')
@@ -446,7 +472,7 @@ function App() {
     const newEntries = [...weekEntries]
     const entry = newEntries[index]
     const isSplit = splitDays.has(entry.date)
-    
+
     if (isSplit && period) {
       if (period === 'morning') {
         newEntries[index].morningLocation = location
@@ -491,7 +517,7 @@ function App() {
     const newEntries = [...weekEntries]
     const entry = newEntries[index]
     const isSplit = splitDays.has(entry.date)
-    
+
     if (isSplit && period) {
       if (period === 'morning') {
         newEntries[index].morningClient = client
@@ -508,7 +534,7 @@ function App() {
     const newEntries = [...weekEntries]
     const entry = newEntries[index]
     const isSplit = splitDays.has(entry.date)
-    
+
     if (isSplit && period) {
       if (period === 'morning') {
         if (clientType === 'Other') {
@@ -543,7 +569,7 @@ function App() {
     const newEntries = [...weekEntries]
     const entry = newEntries[index]
     const isSplit = splitDays.has(entry.date)
-    
+
     if (isSplit && period) {
       if (period === 'morning') {
         newEntries[index].morningNotes = notes
@@ -558,21 +584,26 @@ function App() {
 
   const applyPreset = (presetType: 'all-office' | 'all-wfh') => {
     const newEntries = [...weekEntries]
-    
-    if (presetType === 'all-office') {
-      newEntries.forEach(entry => {
-        entry.location = 'Neal Street'
-        entry.client = ''
-        entry.notes = ''
-      })
-    } else if (presetType === 'all-wfh') {
-      newEntries.forEach(entry => {
-        entry.location = 'WFH'
-        entry.client = ''
-        entry.notes = ''
-      })
-    }
-    
+    const location: WorkLocation = presetType === 'all-office' ? 'Neal Street' : 'WFH'
+
+    newEntries.forEach(entry => {
+      entry.location = location
+      entry.client = ''
+      entry.notes = ''
+      entry.isCustomClient = false
+      // Also update split morning/afternoon if the day is in split mode
+      if (splitDays.has(entry.date)) {
+        entry.morningLocation = location
+        entry.afternoonLocation = location
+        entry.morningClient = ''
+        entry.afternoonClient = ''
+        entry.morningNotes = ''
+        entry.afternoonNotes = ''
+        entry.morningIsCustomClient = false
+        entry.afternoonIsCustomClient = false
+      }
+    })
+
     setWeekEntries(newEntries)
     setToast('Preset applied!')
     setTimeout(() => setToast(''), 2000)
@@ -585,7 +616,7 @@ function App() {
 
     for (const entry of weekEntries) {
       const isSplit = splitDays.has(entry.date)
-      
+
       if (isSplit) {
         // Validate morning entry if location is set
         if (entry.morningLocation) {
@@ -673,10 +704,10 @@ function App() {
 
       // Build entries array - either split or full day entries
       const entries: Entry[] = []
-      
+
       for (const entry of weekEntries) {
         const isSplit = splitDays.has(entry.date)
-        
+
         if (isSplit && (entry.morningLocation || entry.afternoonLocation)) {
           // Add morning entry if location is set
           if (entry.morningLocation) {
@@ -708,8 +739,8 @@ function App() {
             date: entry.date,
             location: entry.location,
             time_period: null,
-          client: (entry.location === 'Client Office' || entry.location === 'Other') && entry.client.trim() 
-            ? entry.client.trim() 
+          client: (entry.location === 'Client Office' || entry.location === 'Other') && entry.client.trim()
+            ? entry.client.trim()
             : undefined,
           notes: entry.notes.trim() || undefined,
           })
@@ -725,6 +756,7 @@ function App() {
       setToast('Week Saved!')
       setTimeout(() => setToast(''), 3000)
       setIsEditMode(false)
+      setShowReminderBanner(false)
       // Navigate to Who's where tab
       setViewMode('dashboard')
 
@@ -786,6 +818,84 @@ function App() {
 
   // Define location order for consistent display
   const locationOrder = ['Neal Street', 'WFH', 'Client Office', 'Working From Abroad', 'Holiday', 'Other']
+
+  // Hoisted render helpers (shared between mobile cards and desktop table)
+  const renderLocationSelect = (
+    location: WorkLocation | undefined,
+    onChange: (loc: WorkLocation) => void,
+  ) => (
+    <select
+      value={location || 'Neal Street'}
+      onChange={(e) => onChange(e.target.value as WorkLocation)}
+    >
+      <option value="Neal Street">Neal Street</option>
+      <option value="WFH">WFH</option>
+      <option value="Client Office">Client Office</option>
+      <option value="Working From Abroad">Working From Abroad</option>
+      <option value="Holiday">Holiday</option>
+      <option value="Other">Other</option>
+    </select>
+  )
+
+  const renderClientInput = (
+    location: WorkLocation | undefined,
+    client: string | undefined,
+    isCustom: boolean | undefined,
+    onChange: (client: string) => void,
+    onClientTypeChange: (clientType: string) => void
+  ) => {
+    if (!location) return <span style={{ color: '#666', fontStyle: 'italic' }}>N/A</span>
+    if (location === 'Client Office') {
+      return isCustom ? (
+        <input
+          className="client-input"
+          type="text"
+          value={client || ''}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Enter client name"
+          style={{ marginTop: '4px' }}
+        />
+      ) : (
+        <div>
+          <select
+            value={client || ''}
+            onChange={(e) => onClientTypeChange(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '8px',
+              border: '2px solid #ffffff',
+              borderRadius: '6px',
+              fontSize: '14px',
+              background: '#000000',
+              color: '#ffffff',
+              fontWeight: '600',
+              marginBottom: '4px',
+            }}
+          >
+            <option value="">Select client</option>
+            {clientOptions.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+            <option value="Other">Other</option>
+          </select>
+        </div>
+      )
+    } else if (location === 'Other') {
+      return (
+        <input
+          className="client-input"
+          type="text"
+          value={client || ''}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Enter location description"
+          style={{ marginTop: '4px' }}
+        />
+      )
+    }
+    return <span style={{ color: '#666', fontStyle: 'italic' }}>N/A</span>
+  }
 
   return (
     <div className="container">
@@ -862,14 +972,14 @@ function App() {
           </button>
 
           <button className="preset-btn" type="button" onClick={goToNextWeek}>Next {'>'}</button>
-          
-          <button 
-            className="preset-btn" 
-            type="button" 
+
+          <button
+            className="preset-btn"
+            type="button"
             onClick={goToThisWeek}
-            style={{ 
+            style={{
               marginLeft: '8px',
-              fontWeight: 700 
+              fontWeight: 700
             }}
           >
             📍 This Week
@@ -882,9 +992,47 @@ function App() {
 
       {toast && <div className="toast">{toast}</div>}
 
+      {/* Monday reminder banner */}
+      {showReminderBanner && viewMode === 'fill' && (
+        <div className="reminder-banner">
+          <span>👋 Don't forget to fill in your week!</span>
+          <button
+            onClick={() => setShowReminderBanner(false)}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#000',
+              cursor: 'pointer',
+              fontSize: '18px',
+              fontWeight: 700,
+              lineHeight: 1,
+              padding: '0 4px',
+            }}
+            aria-label="Dismiss reminder"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {viewMode === 'edit' && (
         <div className="form-section">
           <h2>Select your name to edit:</h2>
+
+          {/* Quick jump to your own entry */}
+          {userName.trim() && userList.includes(userName.trim()) && (
+            <div style={{ marginBottom: '16px' }}>
+              <button
+                className="preset-btn"
+                onClick={() => handleUserSelect(userName.trim())}
+                type="button"
+                style={{ borderColor: '#00ff00', color: '#00ff00' }}
+              >
+                ✏️ Edit my entry ({userName.trim()})
+              </button>
+            </div>
+          )}
+
           <div className="form-group">
             <input
               type="text"
@@ -894,8 +1042,10 @@ function App() {
             />
           </div>
           {loading ? (
-            <div className="empty-state">
-              <h3>Loading...</h3>
+            <div className="user-list">
+              {[1, 2, 3, 4, 5, 6, 8].map(i => (
+                <div key={i} className="skeleton-user-card" />
+              ))}
             </div>
           ) : userList.length === 0 ? (
             <div className="empty-state">
@@ -911,11 +1061,12 @@ function App() {
                 .map((user, index) => (
                 <button
                   key={index}
-                  className="user-card"
+                  className={`user-card ${user === userName.trim() ? 'current-user' : ''}`}
                   onClick={() => handleUserSelect(user)}
                   type="button"
                 >
                   {user}
+                  {user === userName.trim() && <span style={{ marginLeft: '6px', fontSize: '14px' }}>✓</span>}
                 </button>
               ))}
               {userList.filter((u) => u.toLowerCase().includes(editSearchTerm.toLowerCase())).length === 0 && (
@@ -967,11 +1118,19 @@ function App() {
                 }}
                 onFocus={() => setShowUserDropdown(true)}
                 onBlur={() => setTimeout(() => setShowUserDropdown(false), 200)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    setShowUserDropdown(false)
+                    const firstSelect = document.querySelector('.week-table select, .week-cards select') as HTMLSelectElement | null
+                    firstSelect?.focus()
+                  }
+                }}
                 placeholder="Search or enter your name"
                 required
               />
               {showUserDropdown && (
-                <div 
+                <div
                   className="user-dropdown"
                   style={{
                     position: 'absolute',
@@ -989,7 +1148,7 @@ function App() {
                   }}
                 >
             {allUsers
-                    .filter(user => 
+                    .filter(user =>
                       user.toLowerCase().includes(userSearchTerm.toLowerCase())
                     )
                     .slice(0, 10)
@@ -1024,7 +1183,7 @@ function App() {
                         {user}
                       </div>
                     ))}
-                  {allUsers.filter(user => 
+                  {allUsers.filter(user =>
                     user.toLowerCase().includes(userSearchTerm.toLowerCase())
                   ).length === 0 && (
                     <div style={{ padding: '12px 16px', color: '#888', fontStyle: 'italic' }}>
@@ -1036,7 +1195,7 @@ function App() {
             </div>
             {existingEntriesCount > 0 && (
               <div className="update-warning">
-                ℹ️ You already have {existingEntriesCount} entry/entries for this week. 
+                ℹ️ You already have {existingEntriesCount} entry/entries for this week.
                 Submitting will replace them.
               </div>
             )}
@@ -1060,27 +1219,17 @@ function App() {
             </button>
           </div>
 
-          <table className="week-table">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Day</th>
-                <th>Location</th>
-                <th>Client</th>
-                <th>Notes</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
+          {/* Mobile card layout */}
+          {isMobile ? (
+            <div className="week-cards">
               {weekEntries.map((entry, index) => {
                 const isSplit = splitDays.has(entry.date)
-                
+
                 const toggleSplit = () => {
                   setSplitDays(prev => {
                     const newSet = new Set(prev)
                     if (newSet.has(entry.date)) {
                       newSet.delete(entry.date)
-                      // Clear split fields when unsplitting
                       const newEntries = [...weekEntries]
                       newEntries[index] = {
                         ...newEntries[index],
@@ -1096,7 +1245,6 @@ function App() {
                       setWeekEntries(newEntries)
                     } else {
                       newSet.add(entry.date)
-                      // Initialize split fields when splitting
                       const newEntries = [...weekEntries]
                       const current = newEntries[index]
                       newEntries[index] = {
@@ -1115,194 +1263,266 @@ function App() {
                     return newSet
                   })
                 }
-                const renderLocationSelect = (location: WorkLocation | undefined, onChange: (loc: WorkLocation) => void) => (
-                  <select
-                    value={location || 'Neal Street'}
-                    onChange={(e) => onChange(e.target.value as WorkLocation)}
-                    >
-                      <option value="Neal Street">Neal Street</option>
-                      <option value="WFH">WFH</option>
-                      <option value="Client Office">Client Office</option>
-                      <option value="Working From Abroad">Working From Abroad</option>
-                      <option value="Holiday">Holiday</option>
-                      <option value="Other">Other</option>
-                    </select>
-                )
-                
-                const renderClientInput = (
-                  location: WorkLocation | undefined,
-                  client: string | undefined,
-                  isCustom: boolean | undefined,
-                  onChange: (client: string) => void,
-                  onClientTypeChange: (clientType: string) => void
-                ) => {
-                  if (!location) return <span style={{ color: '#666', fontStyle: 'italic' }}>N/A</span>
-                  if (location === 'Client Office') {
-                    return isCustom ? (
-                        <input
-                          className="client-input"
-                          type="text"
-                        value={client || ''}
-                        onChange={(e) => onChange(e.target.value)}
-                          placeholder="Enter client name"
-                          style={{ marginTop: '4px' }}
-                        />
-                      ) : (
-                        <div>
-                          <select
-                          value={client || ''}
-                          onChange={(e) => onClientTypeChange(e.target.value)}
-                            style={{
-                              width: '100%',
-                              padding: '8px',
-                              border: '2px solid #ffffff',
-                              borderRadius: '6px',
-                              fontSize: '14px',
-                              background: '#000000',
-                              color: '#ffffff',
-                              fontWeight: '600',
-                              marginBottom: '4px',
-                            }}
-                          >
-                            <option value="">Select client</option>
-                          {clientOptions.map((c) => (
-                            <option key={c} value={c}>
-                              {c}
-                              </option>
-                            ))}
-                            <option value="Other">Other</option>
-                          </select>
-                        </div>
-                      )
-                  } else if (location === 'Other') {
-                    return (
-                      <input
-                        className="client-input"
-                        type="text"
-                        value={client || ''}
-                        onChange={(e) => onChange(e.target.value)}
-                        placeholder="Enter location description"
-                        style={{ marginTop: '4px' }}
-                      />
-                    )
-                  }
-                  return <span style={{ color: '#666', fontStyle: 'italic' }}>N/A</span>
-                }
-                
-                if (isSplit) {
-                  return (
-                    <React.Fragment key={entry.date}>
-                      <tr>
-                        <td rowSpan={2} style={{ verticalAlign: 'top', paddingTop: '16px' }}>{entry.date}</td>
-                        <td rowSpan={2} style={{ verticalAlign: 'top', paddingTop: '16px' }}>{entry.dayName}</td>
-                        <td>
-                          <div style={{ fontWeight: '700', marginBottom: '4px', color: '#ffff00', fontSize: '12px' }}>Morning</div>
+
+                return (
+                  <div key={entry.date} className="day-card">
+                    <div className="day-card-header">
+                      <span className="day-card-name">{entry.dayName}</span>
+                      <span className="day-card-date">{formatFriendlyDate(entry.date)}</span>
+                    </div>
+
+                    {isSplit ? (
+                      <>
+                        <div className="day-card-period">
+                          <div className="period-label">Morning</div>
                           {renderLocationSelect(entry.morningLocation, (loc) => handleLocationChange(index, loc, 'morning'))}
-                        </td>
-                        <td>
                           {renderClientInput(
                             entry.morningLocation,
                             entry.morningClient,
                             entry.morningIsCustomClient,
-                            (client) => handleClientChange(index, client, 'morning'),
-                            (clientType) => handleClientTypeChange(index, clientType, 'morning')
+                            (c) => handleClientChange(index, c, 'morning'),
+                            (ct) => handleClientTypeChange(index, ct, 'morning')
                           )}
-                        </td>
-                        <td>
                           <input
                             type="text"
                             value={entry.morningNotes || ''}
                             onChange={(e) => handleNotesChange(index, e.target.value, 'morning')}
                             placeholder="Optional notes"
-                            style={{ width: '100%' }}
+                            style={{ width: '100%', marginTop: '8px' }}
                           />
-                        </td>
-                        <td rowSpan={2} style={{ verticalAlign: 'top', paddingTop: '16px' }}>
-                          <button
-                            className="preset-btn"
-                            onClick={toggleSplit}
-                            type="button"
-                            style={{
-                              fontSize: '11px',
-                              padding: '6px 10px',
-                              borderColor: '#00ff00',
-                              backgroundColor: '#003300',
-                            }}
-                          >
-                            Unsplit
-                          </button>
-                        </td>
-                      </tr>
-                      <tr>
-                        <td>
-                          <div style={{ fontWeight: '700', marginBottom: '4px', color: '#ffff00', fontSize: '12px' }}>Afternoon</div>
+                        </div>
+                        <div className="day-card-period">
+                          <div className="period-label">Afternoon</div>
                           {renderLocationSelect(entry.afternoonLocation, (loc) => handleLocationChange(index, loc, 'afternoon'))}
-                        </td>
-                        <td>
                           {renderClientInput(
                             entry.afternoonLocation,
                             entry.afternoonClient,
                             entry.afternoonIsCustomClient,
-                            (client) => handleClientChange(index, client, 'afternoon'),
-                            (clientType) => handleClientTypeChange(index, clientType, 'afternoon')
+                            (c) => handleClientChange(index, c, 'afternoon'),
+                            (ct) => handleClientTypeChange(index, ct, 'afternoon')
                           )}
-                        </td>
-                        <td>
                           <input
                             type="text"
                             value={entry.afternoonNotes || ''}
                             onChange={(e) => handleNotesChange(index, e.target.value, 'afternoon')}
                             placeholder="Optional notes"
-                            style={{ width: '100%' }}
+                            style={{ width: '100%', marginTop: '8px' }}
                           />
-                        </td>
-                      </tr>
-                    </React.Fragment>
-                  )
-                }
-                
-                return (
-                  <tr key={entry.date}>
-                    <td>{entry.date}</td>
-                    <td>{entry.dayName}</td>
-                    <td>
-                      {renderLocationSelect(entry.location, (loc) => handleLocationChange(index, loc))}
-                    </td>
-                    <td>
-                      {renderClientInput(
-                        entry.location,
-                        entry.client,
-                        entry.isCustomClient,
-                        (client) => handleClientChange(index, client),
-                        (clientType) => handleClientTypeChange(index, clientType)
+                        </div>
+                        <button
+                          className="preset-btn"
+                          onClick={toggleSplit}
+                          type="button"
+                          style={{ fontSize: '11px', padding: '6px 10px', borderColor: '#00ff00', backgroundColor: '#003300', marginTop: '8px' }}
+                        >
+                          Unsplit
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        {renderLocationSelect(entry.location, (loc) => handleLocationChange(index, loc))}
+                        {renderClientInput(
+                          entry.location,
+                          entry.client,
+                          entry.isCustomClient,
+                          (c) => handleClientChange(index, c),
+                          (ct) => handleClientTypeChange(index, ct)
+                        )}
+                        <input
+                          type="text"
+                          value={entry.notes}
+                          onChange={(e) => handleNotesChange(index, e.target.value)}
+                          placeholder="Optional notes"
+                          style={{ width: '100%', marginTop: '8px' }}
+                        />
+                        <button
+                          className="preset-btn"
+                          onClick={toggleSplit}
+                          type="button"
+                          style={{ fontSize: '11px', padding: '6px 10px', marginTop: '8px', borderWidth: '1px' }}
+                        >
+                          <span style={{ fontSize: '14px', marginRight: '4px' }}>✂️</span> Split
+                        </button>
+                      </>
                     )}
-                  </td>
-                  <td>
-                    <input
-                      type="text"
-                      value={entry.notes}
-                      onChange={(e) => handleNotesChange(index, e.target.value)}
-                      placeholder="Optional notes"
-                    />
-                  </td>
-                    <td>
-                      <button
-                        className="preset-btn"
-                        onClick={toggleSplit}
-                        type="button"
-                        style={{
-                          fontSize: '11px',
-                          padding: '6px 10px',
-                        }}
-                      >
-                        <span style={{ fontSize: '14px', marginRight: '4px' }}>⏰</span> Split
-                      </button>
-                    </td>
-                </tr>
+                  </div>
                 )
               })}
-            </tbody>
-          </table>
+            </div>
+          ) : (
+            /* Desktop table layout */
+            <table className="week-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Day</th>
+                  <th>Location</th>
+                  <th>Client</th>
+                  <th>Notes</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {weekEntries.map((entry, index) => {
+                  const isSplit = splitDays.has(entry.date)
+
+                  const toggleSplit = () => {
+                    setSplitDays(prev => {
+                      const newSet = new Set(prev)
+                      if (newSet.has(entry.date)) {
+                        newSet.delete(entry.date)
+                        // Clear split fields when unsplitting
+                        const newEntries = [...weekEntries]
+                        newEntries[index] = {
+                          ...newEntries[index],
+                          morningLocation: undefined,
+                          afternoonLocation: undefined,
+                          morningClient: undefined,
+                          afternoonClient: undefined,
+                          morningNotes: undefined,
+                          afternoonNotes: undefined,
+                          morningIsCustomClient: undefined,
+                          afternoonIsCustomClient: undefined,
+                        }
+                        setWeekEntries(newEntries)
+                      } else {
+                        newSet.add(entry.date)
+                        // Initialize split fields when splitting
+                        const newEntries = [...weekEntries]
+                        const current = newEntries[index]
+                        newEntries[index] = {
+                          ...current,
+                          morningLocation: current.location || 'Neal Street' as WorkLocation,
+                          afternoonLocation: current.location || 'Neal Street' as WorkLocation,
+                          morningClient: current.client || '',
+                          afternoonClient: current.client || '',
+                          morningNotes: current.notes || '',
+                          afternoonNotes: current.notes || '',
+                          morningIsCustomClient: current.isCustomClient || false,
+                          afternoonIsCustomClient: current.isCustomClient || false,
+                        }
+                        setWeekEntries(newEntries)
+                      }
+                      return newSet
+                    })
+                  }
+
+                  if (isSplit) {
+                    return (
+                      <React.Fragment key={entry.date}>
+                        <tr className="split-morning-row">
+                          <td rowSpan={2} style={{ verticalAlign: 'top', paddingTop: '16px' }}>{formatFriendlyDate(entry.date)}</td>
+                          <td rowSpan={2} style={{ verticalAlign: 'top', paddingTop: '16px' }}>{entry.dayName}</td>
+                          <td>
+                            <div style={{ fontWeight: '700', marginBottom: '4px', color: '#ffff00', fontSize: '12px' }}>Morning</div>
+                            {renderLocationSelect(entry.morningLocation, (loc) => handleLocationChange(index, loc, 'morning'))}
+                          </td>
+                          <td>
+                            {renderClientInput(
+                              entry.morningLocation,
+                              entry.morningClient,
+                              entry.morningIsCustomClient,
+                              (client) => handleClientChange(index, client, 'morning'),
+                              (clientType) => handleClientTypeChange(index, clientType, 'morning')
+                            )}
+                          </td>
+                          <td>
+                            <input
+                              type="text"
+                              value={entry.morningNotes || ''}
+                              onChange={(e) => handleNotesChange(index, e.target.value, 'morning')}
+                              placeholder="Optional notes"
+                              style={{ width: '100%' }}
+                            />
+                          </td>
+                          <td rowSpan={2} style={{ verticalAlign: 'top', paddingTop: '16px' }}>
+                            <button
+                              className="preset-btn"
+                              onClick={toggleSplit}
+                              type="button"
+                              style={{
+                                fontSize: '11px',
+                                padding: '6px 10px',
+                                borderColor: '#00ff00',
+                                backgroundColor: '#003300',
+                              }}
+                            >
+                              Unsplit
+                            </button>
+                          </td>
+                        </tr>
+                        <tr className="split-afternoon-row">
+                          <td>
+                            <div style={{ fontWeight: '700', marginBottom: '4px', color: '#ffff00', fontSize: '12px' }}>Afternoon</div>
+                            {renderLocationSelect(entry.afternoonLocation, (loc) => handleLocationChange(index, loc, 'afternoon'))}
+                          </td>
+                          <td>
+                            {renderClientInput(
+                              entry.afternoonLocation,
+                              entry.afternoonClient,
+                              entry.afternoonIsCustomClient,
+                              (client) => handleClientChange(index, client, 'afternoon'),
+                              (clientType) => handleClientTypeChange(index, clientType, 'afternoon')
+                            )}
+                          </td>
+                          <td>
+                            <input
+                              type="text"
+                              value={entry.afternoonNotes || ''}
+                              onChange={(e) => handleNotesChange(index, e.target.value, 'afternoon')}
+                              placeholder="Optional notes"
+                              style={{ width: '100%' }}
+                            />
+                          </td>
+                        </tr>
+                      </React.Fragment>
+                    )
+                  }
+
+                  return (
+                    <tr key={entry.date}>
+                      <td>{formatFriendlyDate(entry.date)}</td>
+                      <td>{entry.dayName}</td>
+                      <td>
+                        {renderLocationSelect(entry.location, (loc) => handleLocationChange(index, loc))}
+                      </td>
+                      <td>
+                        {renderClientInput(
+                          entry.location,
+                          entry.client,
+                          entry.isCustomClient,
+                          (client) => handleClientChange(index, client),
+                          (clientType) => handleClientTypeChange(index, clientType)
+                      )}
+                    </td>
+                    <td>
+                      <input
+                        type="text"
+                        value={entry.notes}
+                        onChange={(e) => handleNotesChange(index, e.target.value)}
+                        placeholder="Optional notes"
+                      />
+                    </td>
+                      <td>
+                        <button
+                          className="preset-btn"
+                          onClick={toggleSplit}
+                          type="button"
+                          style={{
+                            fontSize: '11px',
+                            padding: '6px 10px',
+                            borderWidth: '1px',
+                          }}
+                        >
+                          <span style={{ fontSize: '14px', marginRight: '4px' }}>✂️</span> Split
+                        </button>
+                      </td>
+                  </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
 
           <button
             className="save-btn"
@@ -1323,11 +1543,17 @@ function App() {
 
       {viewMode === 'dashboard' && (
         <div className="dashboard">
-          <h2>Team Dashboard - Week of {formatDate(weekStart)}</h2>
+          <h2>Team Dashboard — Week of {formatWeekHeading(weekStart)}</h2>
 
           {loading ? (
-            <div className="empty-state">
-              <h3>Loading...</h3>
+            <div className="skeleton-container">
+              {[1, 2, 3, 4, 5].map(i => (
+                <div key={i} className="skeleton-day">
+                  <div className="skeleton-bar skeleton-title-bar" />
+                  <div className="skeleton-bar" />
+                  <div className="skeleton-bar skeleton-bar-short" />
+                </div>
+              ))}
             </div>
           ) : Object.keys(groupedEntries).length === 0 ? (
             <div className="empty-state">
@@ -1336,6 +1562,25 @@ function App() {
             </div>
           ) : (
             <>
+              {/* Sticky day-of-week navigation */}
+              <div className="day-nav-sticky">
+                {Object.keys(groupedEntries).sort().map((date) => {
+                  const [y, m, d] = date.split('-').map(Number)
+                  const dayShort = new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short' })
+                  const todayStr = new Date().toISOString().split('T')[0]
+                  const isToday = date === todayStr
+                  return (
+                    <button
+                      key={date}
+                      className={`day-nav-btn ${isToday ? 'active' : ''}`}
+                      onClick={() => document.getElementById(`day-${date}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                    >
+                      {dayShort}
+                    </button>
+                  )
+                })}
+              </div>
+
               {/* Regular by location view */}
               {Object.keys(groupedEntries)
                 .sort()
@@ -1344,10 +1589,18 @@ function App() {
                   const today = new Date()
                   const todayStr = today.toISOString().split('T')[0]
                   const isToday = date === todayStr
-                  
+
+                  // Compute attendance stats for this day
+                  const dayAllEntries = groupedEntries[date] ? Object.values(groupedEntries[date]).flat() : []
+                  const enteredUsers = new Set(dayAllEntries.map(e => e.user_name))
+                  const officeCount = new Set(dayAllEntries.filter(e => e.location === 'Neal Street').map(e => e.user_name)).size
+                  const wfhCount = new Set(dayAllEntries.filter(e => e.location === 'WFH').map(e => e.user_name)).size
+                  const notEnteredCount = allUsers.length - enteredUsers.size
+
                   return (
-                  <div 
-                    key={date} 
+                  <div
+                    id={`day-${date}`}
+                    key={date}
                     className={`day-section ${isToday ? 'today' : ''}`}
                     ref={isToday ? todaySectionRef : null}
                   >
@@ -1360,10 +1613,19 @@ function App() {
                       })}
                     </h3>
 
+                    {/* Attendance summary bar */}
+                    <div className="attendance-bar">
+                      <span>🏢 {officeCount} in office</span>
+                      <span className="attendance-dot">·</span>
+                      <span>🏠 {wfhCount} WFH</span>
+                      <span className="attendance-dot">·</span>
+                      <span>❓ {notEnteredCount} not entered</span>
+                    </div>
+
                     {(() => {
                       // Get all location keys (including those with time_period suffixes)
                       const allLocationKeys = Object.keys(groupedEntries[date] || {})
-                      
+
                       // Group by base location (without time_period)
                       const locationGroups: { [baseLoc: string]: { [key: string]: SummaryRow[] } } = {}
                       for (const key of allLocationKeys) {
@@ -1374,18 +1636,18 @@ function App() {
                         }
                         locationGroups[baseLoc][key] = groupedEntries[date][key] || []
                       }
-                      
+
                       // Render each location group
                       return locationOrder.map((baseLocation) => {
                         const locationVariants = locationGroups[baseLocation]
                         if (!locationVariants || Object.keys(locationVariants).length === 0) return null
-                        
+
                         // Get all entries for this base location (across all time periods)
                         const allEntriesForLocation: SummaryRow[] = []
                         for (const variantKey of Object.keys(locationVariants)) {
                           allEntriesForLocation.push(...locationVariants[variantKey])
                         }
-                        
+
                         if (allEntriesForLocation.length === 0) return null
 
                         // If location is Client Office or Other, group by client/description only (time_period shown next to name)
@@ -1401,7 +1663,7 @@ function App() {
                           }, {} as { [key: string]: SummaryRow[] })
 
                         return (
-                            <div key={baseLocation} className="location-group">
+                            <div key={baseLocation} className="location-group" style={{ borderLeft: `3px solid ${getLocationAccentColor(baseLocation)}` }}>
                             <div className="location-group-title">
                                 <span className={`location-badge ${getLocationBadgeClass(baseLocation)}`}>
                                   {baseLocation}
@@ -1411,12 +1673,12 @@ function App() {
                                 const entries = entriesByDescription[description]
                               // For Client Office, check if it's a custom client
                                 const isCustomClient = baseLocation === 'Client Office' && !clientOptions.includes(description)
-                                const heading = baseLocation === 'Other' 
-                                  ? description 
-                                : isCustomClient 
-                                    ? `Other (${description})` 
+                                const heading = baseLocation === 'Other'
+                                  ? description
+                                : isCustomClient
+                                    ? `Other (${description})`
                                     : description
-                              
+
                               return (
                                   <div key={description} style={{ marginTop: '10px', paddingLeft: '20px' }}>
                                   <div style={{ fontSize: '14px', fontWeight: '700', marginBottom: '5px', color: '#ffff00' }}>
@@ -1441,7 +1703,7 @@ function App() {
 
                         // Regular display for other locations - show all entries together with time period next to name
                         return (
-                          <div key={baseLocation} className="location-group">
+                          <div key={baseLocation} className="location-group" style={{ borderLeft: `3px solid ${getLocationAccentColor(baseLocation)}` }}>
                             <div className="location-group-title">
                               <span className={`location-badge ${getLocationBadgeClass(baseLocation)}`}>
                                 {baseLocation}
@@ -1466,35 +1728,32 @@ function App() {
                     {/* Show people who haven't entered */}
                     {(() => {
                       // Get all people who have entered for this date
-                      const enteredUsers = new Set(
+                      const enteredUsersForDay = new Set(
                         (groupedEntries[date] ? Object.values(groupedEntries[date]).flat() : []).map(e => e.user_name)
                       )
-                      
+
                       // Get people from team-members.json who haven't entered, sorted alphabetically
                       const notEntered = allUsers
-                        .filter(user => !enteredUsers.has(user))
+                        .filter(user => !enteredUsersForDay.has(user))
                         .sort()
-                      
+
                       if (notEntered.length === 0) return null
-                      
+
                       return (
-                        <div className="location-group" style={{ marginTop: '16px' }}>
+                        <div className="location-group" style={{ marginTop: '16px', borderLeft: '3px solid #444' }}>
                           <div className="location-group-title">
-                            <span className="location-badge" style={{ 
-                              background: '#444', 
-                              border: '2px solid #888',
-                              color: '#ccc'
+                            <span className="location-badge" style={{
+                              background: '#333',
+                              border: '1px solid #555',
+                              color: '#888'
                             }}>
-                              Not Entered
+                              Not Entered ({notEntered.length})
                             </span>
-                            <span className="location-people">
-                              {notEntered.map((name, index) => (
-                                <span key={`missing-${name}-${index}`} className="person-name-inline" style={{ color: '#999' }}>
-                                  {name}
-                                  {index < notEntered.length - 1 && ', '}
-                                </span>
-                              ))}
-                            </span>
+                          </div>
+                          <div className="not-entered-pills">
+                            {notEntered.map((name) => (
+                              <span key={`missing-${name}`} className="not-entered-pill">{name}</span>
+                            ))}
                           </div>
                         </div>
                       )
