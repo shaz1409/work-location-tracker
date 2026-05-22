@@ -609,6 +609,108 @@ function App() {
     setTimeout(() => setToast(''), 2000)
   }
 
+  const fillFromLastWeek = async () => {
+    if (!userName.trim()) {
+      setError('Please enter your name first')
+      return
+    }
+
+    const prevWeekStart = new Date(weekStart)
+    prevWeekStart.setDate(prevWeekStart.getDate() - 7)
+    const prevWeekStr = formatDate(prevWeekStart)
+
+    const dayOffset = (dateStr: string, mondayStr: string): number => {
+      const [y1, m1, d1] = dateStr.split('-').map(Number)
+      const [y2, m2, d2] = mondayStr.split('-').map(Number)
+      return Math.round((new Date(y1, m1 - 1, d1).getTime() - new Date(y2, m2 - 1, d2).getTime()) / 86400000)
+    }
+
+    try {
+      setLoading(true)
+      setError('')
+      const lastWeekEntries = await getUserEntriesForWeek(userName.trim(), prevWeekStr)
+
+      if (lastWeekEntries.length === 0) {
+        setToast('No entry found for last week')
+        setTimeout(() => setToast(''), 3000)
+        return
+      }
+
+      // Group last week's entries by day offset (0=Mon … 4=Fri) and time period
+      const byOffset = new Map<number, { morning?: ExistingEntry; afternoon?: ExistingEntry; full?: ExistingEntry }>()
+      for (const e of lastWeekEntries) {
+        const offset = dayOffset(e.date, prevWeekStr)
+        if (offset < 0 || offset > 4) continue
+        if (!byOffset.has(offset)) byOffset.set(offset, {})
+        const slot = byOffset.get(offset)!
+        if (e.time_period === 'Morning') slot.morning = e
+        else if (e.time_period === 'Afternoon') slot.afternoon = e
+        else slot.full = e
+      }
+
+      const newEntries = [...weekEntries]
+      const newSplitDays = new Set(splitDays)
+
+      newEntries.forEach((entry, index) => {
+        const offset = dayOffset(entry.date, formatDate(weekStart))
+        const slot = byOffset.get(offset)
+        if (!slot) return
+
+        if (slot.full && !slot.morning && !slot.afternoon) {
+          const loc = normalizeLocationFromApi(slot.full.location) as WorkLocation
+          const isCustomClient = loc === 'Other' ? true
+            : loc === 'Client Office' ? !clientOptions.includes(slot.full.client || '') : false
+          newEntries[index] = {
+            ...entry,
+            location: loc,
+            client: slot.full.client || '',
+            notes: slot.full.notes || '',
+            isCustomClient,
+            morningLocation: undefined, afternoonLocation: undefined,
+            morningClient: undefined, afternoonClient: undefined,
+            morningNotes: undefined, afternoonNotes: undefined,
+            morningIsCustomClient: undefined, afternoonIsCustomClient: undefined,
+          }
+          newSplitDays.delete(entry.date)
+        } else if (slot.morning || slot.afternoon) {
+          newSplitDays.add(entry.date)
+          const result = { ...entry }
+          if (slot.morning) {
+            const loc = normalizeLocationFromApi(slot.morning.location) as WorkLocation
+            result.morningLocation = loc
+            result.morningClient = slot.morning.client || ''
+            result.morningNotes = slot.morning.notes || ''
+            result.morningIsCustomClient = loc === 'Other' ? true
+              : loc === 'Client Office' ? !clientOptions.includes(slot.morning.client || '') : false
+          } else {
+            result.morningLocation = 'Neal Street'; result.morningClient = ''; result.morningNotes = ''; result.morningIsCustomClient = false
+          }
+          if (slot.afternoon) {
+            const loc = normalizeLocationFromApi(slot.afternoon.location) as WorkLocation
+            result.afternoonLocation = loc
+            result.afternoonClient = slot.afternoon.client || ''
+            result.afternoonNotes = slot.afternoon.notes || ''
+            result.afternoonIsCustomClient = loc === 'Other' ? true
+              : loc === 'Client Office' ? !clientOptions.includes(slot.afternoon.client || '') : false
+          } else {
+            result.afternoonLocation = 'Neal Street'; result.afternoonClient = ''; result.afternoonNotes = ''; result.afternoonIsCustomClient = false
+          }
+          newEntries[index] = result
+        }
+      })
+
+      setWeekEntries(newEntries)
+      setSplitDays(newSplitDays)
+      setToast('Filled from last week!')
+      setTimeout(() => setToast(''), 2500)
+    } catch {
+      setToast('No entry found for last week')
+      setTimeout(() => setToast(''), 3000)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const validateEntries = (): string | null => {
     if (!userName.trim()) {
       return 'Please enter your name'
@@ -1216,6 +1318,15 @@ function App() {
               type="button"
             >
               <span style={{ fontSize: '18px', marginRight: '6px' }}>🏠</span> All WFH
+            </button>
+            <button
+              className="preset-btn"
+              onClick={fillFromLastWeek}
+              type="button"
+              disabled={loading}
+              style={{ borderColor: '#aaa', color: '#ccc' }}
+            >
+              <span style={{ fontSize: '16px', marginRight: '6px' }}>📋</span> Same As Last Week
             </button>
           </div>
 
